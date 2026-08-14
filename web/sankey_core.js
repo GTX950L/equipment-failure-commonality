@@ -362,8 +362,8 @@
       return uniq;
     });
 
-    // 4. NG 占比（每层每个值）
-    function ngRatioOf(list) {
+    // 4. 每层每个值的统计 {ratio, n, ng}（ratio = NG 占比）
+    function layerStat(list) {
       const map = new Map();
       rows.forEach(function (r, i) {
         const key = list[i];
@@ -373,19 +373,32 @@
         map.set(key, e);
       });
       const out = {};
-      map.forEach(function (e, k) { out[k] = e.n ? e.ng / e.n : 0; });
+      map.forEach(function (e, k) {
+        out[k] = { ratio: e.n ? e.ng / e.n : 0, n: e.n, ng: e.ng };
+      });
       return out;
     }
 
-    const layerNg = [ngRatioOf(srcShort)];
-    paramLayers.forEach(function (list) { layerNg.push(ngRatioOf(list)); });
-    layerNg.push({ NG: 1, OK: 0 });
+    const layerStats = [layerStat(srcShort)];
+    paramLayers.forEach(function (list) { layerStats.push(layerStat(list)); });
+    // 结果层 NG/OK 的统计
+    layerStats.push({ NG: { ratio: 1, n: 0, ng: 0 }, OK: { ratio: 0, n: 0, ng: 0 } });
+    rows.forEach(function (r) {
+      const key = r.isNG ? "NG" : "OK";
+      layerStats[layerStats.length - 1][key].n++;
+      if (r.isNG) layerStats[layerStats.length - 1][key].ng++;
+    });
 
     // 5. 染色轴
     const nodeNgRatio = {};
+    const nodeNgCount = {};   // 每节点 NG 样本数
+    const nodeNCount = {};    // 每节点样本数
     layerNodes.forEach(function (layer, li) {
       layer.forEach(function (n) {
-        nodeNgRatio[n] = layerNg[li][n] === undefined ? 0 : layerNg[li][n];
+        const st = layerStats[li][n];
+        nodeNgRatio[n] = st ? st.ratio : 0;
+        nodeNgCount[n] = st ? st.ng : 0;
+        nodeNCount[n] = st ? st.n : 0;
       });
     });
     const nodeAxis = {};
@@ -467,9 +480,18 @@
         label: allNodes,
         color: nodeColors,
         ngRatio: allNodes.map(function (n) { return nodeNgRatio[n]; }),
-        // 每个节点: [NG占比, 层索引, 列名, 筛选用原始值] —— 点击节点时用于筛选
+        // 每个节点: [NG占比, 层索引, 列名, 筛选用原始值, 样本数n, NG数, 完整取值]
+        // 完整取值: 源层是完整 FlowCode; 其余层同 label
         customdata: allNodes.map(function (n, i) {
-          return [nodeNgRatio[n], nodeLayerIdx[i], nodeColName[i], nodeFilterValue[i]];
+          return [
+            nodeNgRatio[n],
+            nodeLayerIdx[i],
+            nodeColName[i],
+            nodeFilterValue[i],
+            nodeNCount[n],
+            nodeNgCount[n],
+            nodeFilterValue[i],
+          ];
         }),
       },
       links: { source: srcL, target: tgtL, value: valL, color: colorL },
