@@ -199,9 +199,7 @@
 
 <footer>设备问题共性分析 · 离线版 · 数据仅在你的浏览器内处理，不会上传任何内容</footer>
 
-<!-- 本地库（优先），失败则回退 CDN -->
-<script src="lib/plotly.min.js"></script>
-<script src="lib/xlsx.full.min.js"></script>
+<!-- 核心逻辑(小, 立即加载); Plotly/XLSX 为懒加载, 用到时才下载, 保证页面秒开 -->
 <script src="sankey_core.js"></script>
 <script src="demo_data.js"></script>
 <script>
@@ -218,9 +216,31 @@
     colScores: null,       // 重要列打分: {列名: 分数 0~1}, -1=排除
   };
 
-  // ---------- Plotly 兜底 ----------
-  if (typeof Plotly === "undefined") {
-    document.write('<script src="https:\/\/cdn.plot.ly\/plotly-2.35.2.min.js"><\/script>');
+  // ---------- 懒加载 Plotly / XLSX (页面秒开的关键) ----------
+  var libLoading = {};
+  function loadScript(src){
+    return new Promise(function(resolve, reject){
+      if(libLoading[src] && libLoading[src].done) return resolve();
+      var s = document.createElement("script");
+      s.src = src;
+      s.onload = function(){ libLoading[src] = { done: true }; resolve(); };
+      s.onerror = function(){ libLoading[src] = null; reject(new Error("加载失败: " + src)); };
+      document.head.appendChild(s);
+    });
+  }
+  function ensurePlotly(){
+    return loadScript("lib/plotly.min.js").then(function(){
+      if(typeof Plotly === "undefined") {
+        return loadScript("https://cdn.plot.ly/plotly-2.35.2.min.js");
+      }
+    });
+  }
+  function ensureXLSX(){
+    return loadScript("lib/xlsx.full.min.js").then(function(){
+      if(typeof XLSX === "undefined") {
+        return loadScript("https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js");
+      }
+    });
   }
 
   // ---------- 解析 CSV ----------
@@ -242,32 +262,36 @@
   function readFile(file){
     var name = (file.name||"").toLowerCase();
     if(name.endsWith(".xlsx") || name.endsWith(".xls")){
-      var reader = new FileReader();
-      reader.onload = function(e){
-        try{
-          var wb = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
-          var ws = wb.Sheets[wb.SheetNames[0]];
-          var aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:""});
-          if(!aoa.length){ setInfo("文件内容为空", "warn"); return; }
-          var header = aoa[0].map(function(h){ return String(h).trim(); });
-          var rows = [];
-          for(var i=1;i<aoa.length;i++){
-            var obj = {};
-            var empty = true;
-            for(var j=0;j<header.length;j++){
-              var v = aoa[i][j];
-              obj[header[j]] = (v===null||v===undefined) ? "" : String(v);
-              if(obj[header[j]]!=="") empty = false;
+      setInfo("正在加载 Excel 解析引擎（首次约 1 秒）…");
+      ensureXLSX().then(function(){
+        setInfo("");
+        var reader = new FileReader();
+        reader.onload = function(e){
+          try{
+            var wb = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
+            var ws = wb.Sheets[wb.SheetNames[0]];
+            var aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:""});
+            if(!aoa.length){ setInfo("文件内容为空", "warn"); return; }
+            var header = aoa[0].map(function(h){ return String(h).trim(); });
+            var rows = [];
+            for(var i=1;i<aoa.length;i++){
+              var obj = {};
+              var empty = true;
+              for(var j=0;j<header.length;j++){
+                var v = aoa[i][j];
+                obj[header[j]] = (v===null||v===undefined) ? "" : String(v);
+                if(obj[header[j]]!=="") empty = false;
+              }
+              if(!empty) rows.push(obj);
             }
-            if(!empty) rows.push(obj);
+            loadData(header, rows, name);
+          }catch(err){
+            if(window.console) console.error("[Excel 解析]", err);
+            setInfo("Excel 解析失败: "+err.message, "warn");
           }
-          loadData(header, rows, name);
-        }catch(err){
-          if(window.console) console.error("[Excel 解析]", err);
-          setInfo("Excel 解析失败: "+err.message, "warn");
-        }
-      };
-      reader.readAsArrayBuffer(file);
+        };
+        reader.readAsArrayBuffer(file);
+      }).catch(function(err){ setInfo("Excel 解析引擎加载失败: "+err.message, "warn"); });
     } else {
       // CSV: 自动尝试 GBK / UTF-8
       var r2 = new FileReader();
@@ -644,7 +668,14 @@
       params.length + " 层工序参数，源列「" + esc(sourceCol()) + "」保留 Top-" + $("selTopN").value +
       "。<br>💡 点击图上任意节点：该节点路径会<b>高亮</b>，并在下方 CPK 面板自动对该子集做能力分析（支持导出筛选数据）。";
   }
-  $("btnPlot").addEventListener("click", plotSankey);
+  $("btnPlot").addEventListener("click", function(){
+    if(!state.header.length){ setInfo("请先加载数据", "warn"); return; }
+    setInfo("正在加载绘图引擎（首次约 1~3 秒）…");
+    ensurePlotly().then(function(){
+      setInfo("");
+      plotSankey();
+    }).catch(function(e){ setInfo(e.message, "warn"); });
+  });
 
   // 配色模式切换 → 只更新颜色 (restyle), 不重建整图
   function replotColor(){
@@ -680,12 +711,16 @@
   document.querySelectorAll('input[name="colorMode"]').forEach(function(rb){
     rb.addEventListener("change", function(){
       state.colorMode = rb.value;
-      replotColor();
+      ensurePlotly().then(replotColor).catch(function(){});
     });
   });
 
-  $("btnPng").addEventListener("click", function(){ downloadImage("png", "sankey.png"); });
-  $("btnSvg").addEventListener("click", function(){ downloadImage("svg", "sankey.svg"); });
+  $("btnPng").addEventListener("click", function(){
+    ensurePlotly().then(function(){ downloadImage("png", "sankey.png"); }).catch(function(e){ alert(e.message); });
+  });
+  $("btnSvg").addEventListener("click", function(){
+    ensurePlotly().then(function(){ downloadImage("svg", "sankey.svg"); }).catch(function(e){ alert(e.message); });
+  });
 
   // 配色模式切换时同步图例文案（在出图前调用）
   function syncColorbarLabel(){
@@ -1112,12 +1147,20 @@
 
     el.innerHTML = html;
 
-    // 画直方图
+    // 画直方图 (Plotly 懒加载, 确保已就绪)
     var chartDiv = document.getElementById("cpkChart");
-    if(chartDiv && typeof Plotly !== "undefined" && curVals.length >= 2){
-      renderCpkHistogram(chartDiv, curVals, cur.mean, cur.sd, lsl, usl);
-    } else if(chartDiv){
-      chartDiv.innerHTML = '<div class="empty-tip">数据不足，无法画直方图</div>';
+    if(chartDiv){
+      if(curVals.length < 2){
+        chartDiv.innerHTML = '<div class="empty-tip">数据不足，无法画直方图</div>';
+      } else if(typeof Plotly !== "undefined"){
+        renderCpkHistogram(chartDiv, curVals, cur.mean, cur.sd, lsl, usl);
+      } else {
+        chartDiv.innerHTML = '<div class="empty-tip">正在加载绘图引擎…</div>';
+        ensurePlotly().then(function(){
+          var d2 = document.getElementById("cpkChart");
+          if(d2 && curVals.length >= 2) renderCpkHistogram(d2, curVals, cur.mean, cur.sd, lsl, usl);
+        }).catch(function(){});
+      }
     }
   }
 
