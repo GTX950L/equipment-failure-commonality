@@ -623,8 +623,7 @@
         label: result.nodes.label,
         color: result.nodes.color,
         customdata: result.nodes.customdata, // [NG占比, 层索引, 列名, 筛选用值, n, ng, 完整取值]
-        hovertemplate: "%{label}<br>" +
-          "所属: %{customdata[2]}<br>" +
+        hovertemplate: "%{customdata[2]} = %{label}<br>" +
           "NG 占比: %{customdata[0]:.1%} · 样本数: %{customdata[4]}（NG %{customdata[5]} 条）<br>" +
           "完整取值: %{customdata[6]}<extra></extra>",
       },
