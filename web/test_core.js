@@ -145,6 +145,43 @@ assert.strictEqual(result.layers.length, 6, "demo 应有 6 层 (1 源 + 4 参数
 assert.strictEqual(result.layers[0].name, "FlowCode", "第一层应为源列名");
 assert.ok(result.layers[0].indices.length > 0, "每层应有节点索引");
 
+// ============ 环状结构检测 ============
+// 每条链路必须从低层指向相邻下一层: 不允许自环 / 回边 / 跨层指向
+function assertNoCycle(buildResult, tag) {
+  const layerOf = {};
+  buildResult.layers.forEach(function (layer, li) {
+    layer.indices.forEach(function (idx) { layerOf[idx] = li; });
+  });
+  buildResult.links.source.forEach(function (s, i) {
+    const t = buildResult.links.target[i];
+    assert.ok(s !== t, "[" + tag + "] 不允许自环 (链路 " + i + ")");
+    const ls = layerOf[s], lt = layerOf[t];
+    assert.ok(lt === ls + 1, "[" + tag + "] 链路必须指向相邻下一层: " + ls + "->" + lt + " (链路 " + i + ")");
+  });
+}
+assertNoCycle(result, "demo");
+// 构造跨层同 label 数据(参数1=1/2/3/4, 参数2=1/2 同 label): 旧代码会合并节点成环
+const conflictData = [
+  { A: "X1", 档: "1", 位: "1", 结果: "NG" },
+  { A: "X1", 档: "1", 位: "1", 结果: "OK" },
+  { A: "X1", 档: "2", 位: "2", 结果: "NG" },
+  { A: "X2", 档: "3", 位: "1", 结果: "OK" },
+  { A: "X2", 档: "3", 位: "2", 结果: "NG" },
+  { A: "X2", 档: "4", 位: "1", 结果: "OK" },
+];
+const conflictResult = core.buildSankey({
+  data: conflictData, sourceCol: "A",
+  paramCols: ["档", "位"], resultCol: "结果",
+  ngValues: ["NG"], topN: 2, bins: 3,
+});
+assert.ok(conflictResult, "跨层同 label 应能构建");
+assertNoCycle(conflictResult, "conflict");
+// 参数1 的 "1" 与参数2 的 "1" 必须是不同节点 (不同层索引)
+const layer1Idx = new Set(conflictResult.layers[1].indices);
+const layer2Idx = new Set(conflictResult.layers[2].indices);
+assert.ok([...layer1Idx].every(function (i) { return !layer2Idx.has(i); }),
+  "跨层同 label 必须为不同节点(复合键)");
+
 // ============ calcCpK 断言 ============
 // 已知数据集: 手工构造 均值=10, σ≈1, 规格 8~12 → Cp=Cpk≈0.67
 const nums = [];
