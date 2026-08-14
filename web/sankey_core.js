@@ -188,9 +188,27 @@
     });
   }
 
+  // 整数低基数列(如档位 1/2/3/4)当离散处理, 不做连续分箱
+  function isIntegerLowCardinality(values, maxCardinality) {
+    const uniq = new Set();
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i];
+      if (v === "" || v === null || v === undefined) continue;
+      const n = Number(v);
+      if (!isFinite(n) || !Number.isInteger(n)) return false;
+      uniq.add(n);
+      if (uniq.size > maxCardinality) return false;
+    }
+    return uniq.size >= 2 && uniq.size <= maxCardinality;
+  }
+
   function prepareLayer(values, nBins, maxCardinality) {
     /** 把一列变成适合做桑基图节点的离散标签 */
     if (isNumericColumn(values)) {
+      // 整数档位(1/2/3/4)保留为离散节点, 连续数值才分箱
+      if (isIntegerLowCardinality(values, maxCardinality)) {
+        return collapseLowCardinality(values, maxCardinality);
+      }
       return binNumeric(values, nBins);
     }
     return collapseLowCardinality(values, maxCardinality);
@@ -580,7 +598,10 @@
       });
       let labels;
       if (isNumericColumn(vals)) {
-        labels = binNumeric(vals, bins);
+        // 与 prepareLayer 一致: 整数档位当离散, 连续值才分箱
+        labels = isIntegerLowCardinality(vals, 30)
+          ? collapseLowCardinality(vals, 30)
+          : binNumeric(vals, bins);
       } else {
         const uniq = new Set(vals.map(String));
         // 离散列唯一值太多 → 每值一例, 无共性意义, 排除

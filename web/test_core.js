@@ -126,6 +126,19 @@ const fakeHeader = ["条码", "测试时间", "设备编号", "注水量_g", "�
 const fakeScores = core.scoreColumns(data, fakeHeader, "FlowCode", "判定结果", ["NG"], 5);
 // 注: fakeHeader 引用真实列名, 这里仅验证 scoreColumns 可运行且不崩溃
 assert.ok(fakeScores, "scoreColumns 应能处理任意表头");
+// 整数低基数列当离散档位处理 (如注水阀 1/2/3/4 不应分箱成区间)
+const gearVals = ["1", "1", "2", "3", "3", "4", "1", "2", "3", "4"];
+const gearPrep = core.prepareLayer(gearVals, 5, 30);
+assert.deepStrictEqual(gearPrep.slice(), ["1", "1", "2", "3", "3", "4", "1", "2", "3", "4"], "整数档位应保留原值, 不分箱");
+const floatVals = ["0.108", "0.110", "0.107", "0.112", "0.109"];
+const floatPrep = core.prepareLayer(floatVals, 2, 30);
+assert.ok(floatPrep[0] !== floatPrep[floatPrep.length - 1] || floatPrep.length > 0, "连续小数应分箱为区间标签");
+assert.ok(String(floatPrep[0]).indexOf("~") >= 0 || String(floatPrep[0]).indexOf("(") >= 0, "分箱标签应为区间形式");
+// 整数高基数(如唯一值 200)应仍走分箱
+const manyInts = [];
+for (let i = 0; i < 200; i++) manyInts.push(String(i));
+const manyPrep = core.prepareLayer(manyInts, 4, 30);
+assert.ok(String(manyPrep[0]).indexOf("~") >= 0, "整数高基数列应分箱");
 // layers 结构
 assert.ok(Array.isArray(result.layers), "buildSankey 应返回 layers");
 assert.strictEqual(result.layers.length, 6, "demo 应有 6 层 (1 源 + 4 参数 + 1 结果)");
