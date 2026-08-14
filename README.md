@@ -7,6 +7,19 @@
 
 ---
 
+## 🚀 在线体验（GitHub Pages）
+
+**不用安装、不用下载，浏览器直接打开：**
+
+👉 **[点击打开 Web 工具（sankey.html）](https://gtx950l.github.io/equipment-failure-commonality/sankey.html)**
+
+支持拖入 CSV / Excel → 自动识别表头 → 打钩选列 → 出图 + CPK 联合分析。
+（首次打开会等 GitHub Pages 预热几秒；数据始终只在你的浏览器内处理。）
+
+想离线用？把仓库里的 `web/` 文件夹拷走，双击 `sankey.html` 即可。
+
+---
+
 ## 快速开始（推荐：Web 离线版，无需安装）
 
 **整个 `web/` 文件夹拷到任何电脑（含内网），双击 `web/sankey.html` 即可使用** —— 无需安装任何软件、无需联网、数据不出本机。
