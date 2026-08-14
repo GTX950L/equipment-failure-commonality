@@ -72,71 +72,30 @@ FlowCode → 注水阀 → 注水量 → 扬水通量 → 肘存量 → NG / OK
 
 ---
 
-## 命令行版（Python，可选）
-
-网页版足够日常使用。如果想批量处理 / 集成到脚本里，也可以用 Python 版：
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/GTX950L/equipment-failure-commonality.git
-cd equipment-failure-commonality
-
-# 2. 安装依赖 (建议 Python 3.10+)
-pip install -r requirements.txt
-
-# 3. 跑一遍 demo 数据
-python src/generate_demo_data.py
-
-# 4. 生成桑基图 (HTML 交互式, 也可直接打开 examples/sankey_demo.html)
-python src/sankey_analysis.py
-```
-
-命令行参数（列名随意指定，不再写死）：
-
-```bash
-# 指定源列 / 参数列 / 结果列，Top-8，分 6 箱，JMP 二色配色，同时导出 PNG + SVG 矢量图
-python src/sankey_analysis.py --source-col FlowCode \
-    --param-cols 注水阀 注水量_g 扬水通量 肘存量 \
-    --result-col 判定结果 --top-n 8 --bins 6 \
-    --color-mode binary \
-    --out-png docs/sankey_example.png --out-svg docs/sankey_example.svg
-```
-> `--color-mode`：`gradient`（科学渐变红灰蓝，默认）/ `binary`（JMP 红蓝二色）。PNG / SVG 导出需安装 `kaleido`。
-
----
-
 ## 目录结构
 
 ```
 equipment-failure-commonality/
 ├── README.md
-├── requirements.txt
 ├── .gitignore
-├── data/
-│   └── demo_equipment_issues.csv      # 示例数据 (800 条模拟设备工艺记录)
-├── src/
-│   ├── generate_demo_data.py         # 生成模拟数据
-│   └── sankey_analysis.py            # 核心: 任意列组合 → 桑基图
 ├── web/                              # Web 版 (在线/离线同一套文件, 双击即用)
 │   ├── index.html                    #   入口 (自动跳转到 sankey.html)
 │   ├── sankey.html                   #   主界面
 │   ├── sankey_core.js                #   核心计算逻辑 (JS)
-│   ├── demo_data.js                  #   内置示例数据
+│   ├── demo_data.js                  #   内置示例数据 (800 条, 供"加载示例数据"按钮)
 │   ├── lib/
 │   │   ├── plotly.min.js             #   本地绘图库 (离线可用)
 │   │   └── xlsx.full.min.js          #   本地 Excel 解析库
 │   └── test_core.js                  #   核心逻辑自测 (node test_core.js)
-├── examples/
-│   └── sankey_demo.html              # 运行后产出 (git 忽略)
 └── docs/
-    └── sankey_example.png            # 静态预览图
+    └── sankey_web_example.png        # 静态预览图 (网页截图)
 ```
 
 ---
 
 ## 数据格式
 
-`data/demo_equipment_issues.csv` 列定义（直接换成你自己的数据即可）：
+内置示例数据（`web/demo_data.js`）列定义（把窗口里的示例换成你自己的数据即可）：
 
 | 列名          | 含义                            | 样例                      |
 |---------------|---------------------------------|---------------------------|
@@ -147,55 +106,34 @@ equipment-failure-commonality/
 | `肘存量`       | 工序 4：肘部存量数值（连续）     | 0.110                     |
 | `判定结果`     | 终检结果                        | `NG` 或 `OK`              |
 
-> 列名**不需要**保持一致 —— 上面只是 demo 数据的列名。Web 版会自动识别表头让你打钩选择；
-> Python 版通过 `source_col` / `param_cols` / `result_col` 参数传列名，任意表头都能跑。
+> 列名**不需要**保持一致 —— 上面只是 demo 数据的列名。Web 版会自动识别表头让你打钩选择，
+> 任意表头 / 任意参数列组合都能跑。
 
 ---
 
 ## 代码走读（5 分钟看懂）
 
-Python 版 `src/sankey_analysis.py` 的核心流水线：
+Web 版 `web/sankey_core.js` 的核心流水线：
 
 | 步骤 | 函数 / 代码块                              | 作用                                  |
 |------|---------------------------------------------|---------------------------------------|
-| 1    | `bin_continuous`                            | 连续值分箱 (例: `0.108` → `[0.105, 0.110]`) |
-| 2    | `prepare_layer_col`                         | 自动判断数值/离散列，离散列合并低频类别为"其他" |
-| 3    | `work.groupby([left, right]).size()` ×N 层  | 任意数量参数列，逐层统计共现次数 (链路 value) |
-| 4    | `_mix_color` / `_color_for_link`            | 按"相对基线 NG 占比"计算节点 / 链路颜色 |
-| 5    | `go.Sankey(...)`                            | 喂给 Plotly 出图                       |
+| 1    | `prepareLayer`                              | 自动判断数值/离散列：连续值分箱 (`0.108` → `[0.105, 0.110]`)，离散列合并低频类别为"其他" |
+| 2    | 逐层统计共现次数 (source→target 计数)        | 任意数量参数列，逐层统计共现次数 (链路 value) |
+| 3    | `colorForNode` / `colorForLink`             | 按"相对基线 NG 占比"计算节点 / 链路颜色 |
+| 4    | `buildSankey`                               | 组装节点 / 链路数组，喂给 Plotly 出图   |
 
-核心入口是 `build_sankey(df, source_col, param_cols, result_col, ...)` —— 参数列是**列表**，传几个就有几层。
-
-> Web 版 `web/sankey_core.js` 与 Python 版算法完全一致（分箱、合并、染色逻辑同步），
-> 只是换成了纯 JS，方便浏览器里离线跑。
+核心入口是 `buildSankey({ data, sourceCol, paramCols, resultCol, ... })` —— 参数列是**数组**，传几个就有几层。
+配套 `scoreColumns`（按信息增益自动推荐参数列）与 `calcCpK` / `verdictForCpk`（CPK 判级）。
 
 ---
 
 ## 替换成你自己的数据
 
-```python
-# 在你自己的脚本里
-import pandas as pd
-from src.sankey_analysis import build_sankey
+1. 打开页面后，把数据表 **拖进窗口** 或 **粘贴**（CSV / Excel 均可）
+2. 确认自动识别的源列 / 结果列 / 不良值，勾选要分析的工序参数列
+3. 点「生成桑基图」即可
 
-df = pd.read_csv("your_data.csv")  # 列名随意，指定即可
-fig = build_sankey(
-    df,
-    source_col="产品型号",          # 源列
-    param_cols=["注塑温度", "保压时间", "冷却水流量"],  # 工序参数列（任意数量）
-    result_col="判定结果",          # 结果列
-    top_n=6,
-    continuous_bins=5,
-)
-fig.write_html("your_sankey.html")
-fig.show()
-```
-
-或者更简单：把 `your_data.csv` 放到 `data/`，命令行指定路径：
-
-```bash
-python src/sankey_analysis.py --csv data/your_data.csv --out-html examples/your.html
-```
+想先体验效果？点页面上的「加载示例数据」按钮，内置 800 条模拟设备工艺记录。
 
 ---
 
@@ -230,8 +168,6 @@ CPK 面板的「仅 OK / 仅 NG」两个选项是个 1 键验证：
 
 规格限 LSL / USL 留空时自动用全量 μ±3σ 占位（仅试算），正式判级请填图纸/客户标准的真实值。
 
-> Python 版同样支持 CPK 联用：`from src.sankey_analysis import build_sankey` 取 red flow 节点 → 筛 sub-DataFrame → 算 Cpk / Cp / 样本标准差。
-
 ---
 
 ## 适用场景
@@ -262,18 +198,15 @@ CPK 面板的「仅 OK / 仅 NG」两个选项是个 1 键验证：
 
 ## 依赖
 
-- Python ≥ 3.10
-- pandas ≥ 2.0
-- plotly ≥ 5.18
-- (可选) kaleido — 用于导出 PNG
-
-见 `requirements.txt`。
+- 浏览器即可（Chrome / Edge / Firefox），**无需安装任何东西**
+- 绘图库 Plotly.js 与 Excel 解析库 SheetJS 已内置在 `web/lib/`，完全离线可用
+- 跑自测 `node web/test_core.js` 仅需 Node.js（开发验证用，不影响使用）
 
 ---
 
 ## 路线图
 
-- [x] demo 数据生成器
+- [x] 内置示例数据 (800 条, 一键加载)
 - [x] 桑基图核心 (任意参数列组合, 不再写死 5 层)
 - [x] Web 离线版 (双击即用, 自动识别表头 + 打钩选列)
 - [x] 本地 Plotly.js / SheetJS (完全离线可用)

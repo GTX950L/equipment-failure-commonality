@@ -1,7 +1,7 @@
 /**
  * test_core.js — 验证 sankey_core.js 的核心逻辑
  * 用法: node test_core.js
- * 用项目 demo CSV 跑一遍，并输出关键统计供核对。
+ * 用内置示例数据 (web/demo_data.js 的 DEMO_CSV) 跑一遍，并输出关键统计供核对。
  */
 "use strict";
 
@@ -9,9 +9,15 @@ const fs = require("fs");
 const path = require("path");
 const core = require("./sankey_core.js");
 
-// 读 demo CSV
-const csvPath = path.join(__dirname, "..", "data", "demo_equipment_issues.csv");
-const text = fs.readFileSync(csvPath, "utf-8");
+// 直接从内置示例 (web/demo_data.js 的 DEMO_CSV) 读取, 不再依赖外部 CSV 文件
+function loadDemoCsv() {
+  const src = fs.readFileSync(path.join(__dirname, "demo_data.js"), "utf-8");
+  const m = src.match(/DEMO_CSV\s*=\s*"([\s\S]*?)"\s*;/);
+  if (!m) throw new Error("未能从 demo_data.js 提取 DEMO_CSV");
+  // DEMO_CSV 中是字面量转义 (\n), 还原成真实换行符
+  return m[1].split("\\n").join("\n").split('\\"').join('"');
+}
+const text = loadDemoCsv();
 const parsed = core.parseDelimited(text);
 
 console.log("表头:", parsed.header.join(" | "));
@@ -211,6 +217,4 @@ assert.strictEqual(core.verdictForCpk(1.2).level, "C");
 assert.strictEqual(core.verdictForCpk(1.5).level, "B");
 assert.strictEqual(core.verdictForCpk(2.0).level, "A");
 
-console.log("✅ 全部断言通过 (含 calcCpK / verdictForCpk)");
-
-console.log("\n✅ 全部断言通过");
+console.log("\n✅ 全部断言通过 (含 calcCpK / verdictForCpk)");
