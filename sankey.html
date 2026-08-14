@@ -91,7 +91,7 @@
 <body>
 <header>
   <h1>🔧 设备问题共性分析 · 桑基图</h1>
-  <p>上传数据表 → 自动识别表头 → 打钩选列 → 出图 · 离线单文件 · 无需安装 / 数据不出本机</p>
+  <p>上传数据表 → 自动识别表头 → 打钩选列 → 出图 · 离线版 · 无需安装任何软件 / 数据不出本机</p>
 </header>
 
 <div id="dropHint">📂 松开鼠标，导入数据文件（支持 .csv / .xlsx / .xls）</div>
@@ -100,7 +100,7 @@
   <!-- ============ 面板 ① 数据 ============ -->
   <div class="panel">
     <h2><span class="step">1</span> 数据</h2>
-    <textarea id="dataArea" placeholder="直接粘贴 CSV / Excel 复制出来的表格：&#10;&#10;FlowCode,注水阀,注水量_g,判定结果&#10;KCHLZB00DV001115+A455P,A档,0.108,OK&#10;KCHLZB00DV001115+A455P,C档,0.102,NG&#10;&#10;或点击下方按钮选择文件 / 把文件拖进来"></textarea>
+    <textarea id="dataArea" placeholder="直接粘贴 CSV / Excel 复制出来的表格：&#10;&#10;FlowCode,注水阀,注水量_g,判定结果&#10;KCHLZB00DV001115+A455P,A档,0.108,OK&#10;KCHLZB00DV001115+A455P,C档,0.102,NG&#10;&#10;（列名任意、列数不限，只需首行是列名）&#10;或点击下方按钮选择文件 / 把文件拖进来"></textarea>
     <div id="parseInfo" class="parseinfo"></div>
     <div style="margin-top:10px">
       <button id="btnLoad">解析表格</button>
@@ -147,7 +147,7 @@
   <div class="panel" style="flex:2 1 520px;min-width:420px">
     <h2><span class="step">3</span> 出图</h2>
     <div id="chartArea">
-      <div class="empty-tip">先在左侧选择好列，点击「🚀 生成桑基图」。</div>
+      <div class="empty-tip">先在「打钩选择」面板里选好列，再点「🚀 生成桑基图」。</div>
     </div>
     <div style="margin-top:10px">
       <button id="btnPlot" type="primary">🚀 生成桑基图</button>
@@ -163,11 +163,11 @@
     <details id="cpkBox" style="margin-top:14px">
       <summary>📐 CPK 过程能力分析（联合判定）</summary>
       <div class="hint" style="margin:6px 0 10px">
-        点击图上任意节点（如红色型号 / 参数区间），自动筛选出该子集；对比「子集 vs 全量 vs OK」的过程能力，
-        判断红色路径到底是<b>参数真的偏移/发散</b>（CPK 低），还是<b>另有其因</b>（CPK 正常）。
+        点击图上任意节点（如红色型号 / 参数区间 / NG），自动筛选出该子集；对比<b>「当前范围 / 全量 / 仅 OK / 仅 NG」</b>的过程能力，
+        判断红色路径到底是<b>参数真的偏移/发散</b>（该子集 CPK 低），还是<b>另有其因</b>（CPK 正常）。
       </div>
 
-      <div class="section-title">数据范围（点击图上节点会自动切到"当前筛选"）</div>
+      <div class="section-title">数据范围（点击图上节点会自动切到「当前筛选」）</div>
       <div id="cpkScope"></div>
       <div id="cpkFilterBar" style="display:none;margin-top:8px"></div>
 
@@ -183,7 +183,7 @@
   </div>
 </div>
 
-<footer>设备问题共性分析 · 离线单文件版 · 数据仅在你的浏览器内处理，不会上传任何内容</footer>
+<footer>设备问题共性分析 · 离线版 · 数据仅在你的浏览器内处理，不会上传任何内容</footer>
 
 <!-- 本地库（优先），失败则回退 CDN -->
 <script src="lib/plotly.min.js"></script>
@@ -473,7 +473,7 @@
         label: result.nodes.label,
         color: result.nodes.color,
         customdata: result.nodes.customdata, // [NG占比, 层索引, 列名]
-        hovertemplate: "%{label}<br>下游 NG 占比: %{customdata[0]:.1%}<extra></extra>",
+        hovertemplate: "%{label}<br>该值 NG 占比: %{customdata[0]:.1%}<extra></extra>",
       },
       link: {
         source: result.links.source,
@@ -496,6 +496,15 @@
     Plotly.newPlot("chartBox", data, layout, { responsive: true, displaylogo: false });
     state.cpkResult = result;
     bindSankeyClick();
+
+    // 出图后校验 CPK 筛选是否仍然有效（列被去掉则清掉筛选）
+    var colsInPlot = [sourceCol()].concat(params).concat([resultCol()]);
+    if(state.filter && colsInPlot.indexOf(state.filter.col) < 0){
+      state.filter = null;
+      state.cpkScope = "all";
+      renderCpkScope();
+      renderFilterBar();
+    }
 
     $("statLine").innerHTML =
       "📊 共 " + state.rows.length.toLocaleString() + " 条记录，" +
@@ -578,7 +587,20 @@
       if(first === null) first = c;
     });
     if(sel.options.length === 0){
-      sel.innerHTML = '<option value="">(无数值列)</option>';
+      sel.innerHTML = '<option value="">(没有可分析的数值列)</option>';
+      var tip = document.getElementById("cpkNoNumTip");
+      if(!tip){
+        tip = document.createElement("div");
+        tip.id = "cpkNoNumTip";
+        tip.className = "hint";
+        tip.style.color = "var(--mar)";
+        tip.style.marginTop = "4px";
+        sel.parentNode.appendChild(tip);
+      }
+      tip.textContent = "CPK 需要数值列，当前表里没有。若你的测量值被存成文本，请先在 Excel 里转成数值。";
+    } else {
+      var tip2 = document.getElementById("cpkNoNumTip");
+      if(tip2) tip2.remove();
     }
   }
 
@@ -613,6 +635,12 @@
 
   function renderFilterBar(){
     var bar = $("cpkFilterBar");
+    if(state.cpkScope === "filter" && !state.filter){
+      // 选了「当前筛选」但还没点节点
+      bar.style.display = "";
+      bar.innerHTML = '<span class="hint" style="color:var(--mar)">👆 请点击桑基图中的任意节点（如红色型号 / 参数区间 / NG），会自动筛选出该子集。</span>';
+      return;
+    }
     if(state.filter && state.cpkScope === "filter"){
       bar.style.display = "";
       bar.innerHTML =
@@ -625,10 +653,10 @@
         renderFilterBar();
         if($("cpkParam").value) calcCpk();
       });
-    } else {
-      bar.style.display = "none";
-      bar.innerHTML = "";
+      return;
     }
+    bar.style.display = "none";
+    bar.innerHTML = "";
   }
 
   // 点击节点后：按层类型把节点值还原成可匹配的数据子集
@@ -652,7 +680,8 @@
 
   function getScopeRows(){
     var rows = state.rows;
-    if(state.cpkScope === "filter" && state.filter){
+    if(state.cpkScope === "filter"){
+      if(!state.filter) return [];   // 选了「当前筛选」但还没点节点
       return applyFilter(rows, state.filter.col, state.filter.value, state.filter.layerIdx);
     }
     if(state.cpkScope === "ok" || state.cpkScope === "ng"){
@@ -686,12 +715,30 @@
 
   function calcCpk(){
     var param = $("cpkParam").value;
-    if(!param || !state.header.length){ return; }
+    if(!param || !state.header.length){
+      $("cpkResult").innerHTML = '<div class="empty-tip">当前数据中没有可分析的数值列，无法计算 CPK。</div>';
+      return;
+    }
     var lslRaw = $("cpkLsl").value.trim();
     var uslRaw = $("cpkUsl").value.trim();
 
+    // 规格限合法性校验
+    var lslBad = lslRaw !== "" && !isFinite(parseFloat(lslRaw));
+    var uslBad = uslRaw !== "" && !isFinite(parseFloat(uslRaw));
+    if(lslBad || uslBad){
+      $("cpkResult").innerHTML = '<div class="empty-tip">⚠ LSL / USL 需要填数字（可留空）。已填的规格限格式不正确，请修改。</div>';
+      return;
+    }
+
     var allVals = numericValues(state.rows, param);
     if(allVals.length < 2){ $("cpkResult").innerHTML = '<div class="empty-tip">该参数有效数值不足 2 个，无法计算 CPK。</div>'; return; }
+
+    var curRows = getScopeRows();
+    if(state.cpkScope === "filter" && (!state.filter || curRows.length === 0)){
+      $("cpkResult").innerHTML =
+        '<div class="empty-tip">当前选择了「当前筛选」范围，但还没有点击图上的节点。<br>👉 点击桑基图中的任意节点（如红色型号 / 参数区间），即可自动筛选出该子集。</div>';
+      return;
+    }
 
     // 规格限: 用户未填 → 用全量 μ±3σ 占位
     var base = SankeyCore.calcCpK(allVals, null, null);
@@ -699,7 +746,7 @@
     var usl = uslRaw !== "" ? parseFloat(uslRaw) : (base.mean + 3 * base.sd);
     var lslGiven = lslRaw !== "", uslGiven = uslRaw !== "";
 
-    var curVals = numericValues(getScopeRows(), param);
+    var curVals = numericValues(curRows, param);
     var okVals = numericValues(getOkRows(), param);
     var ngVals = numericValues(getNgRows(), param);
 
@@ -742,10 +789,10 @@
       : "";
 
     var verdictText =
-      (v.level === "A") ? "过程能力优秀，波动小、余量大。该子集参数不是 NG 根因。" :
-      (v.level === "B") ? "过程能力合格。若该子集 NG 仍偏高，说明问题可能另有其因，建议查批次/时段。" :
-      (v.level === "C") ? "过程能力边缘，存在超规风险 —— 与桑基图红色路径相互印证，值得重点排查该参数。" :
-      "过程能力不足，超规风险高 —— 与桑基图红色路径一致，该参数很可能是系统性根因。";
+      (v.level === "A") ? "过程能力优秀，波动小、余量大 —— 该子集参数的偏移/发散**不太可能是 NG 根因**；若 NG 率仍高，请转向批次/时段/操作等因素排查。" :
+      (v.level === "B") ? "过程能力合格。若该子集 NG 率仍偏高，说明问题可能另有其因，建议查批次/时段。" :
+      (v.level === "C") ? "过程能力边缘，存在超规风险 —— 值得重点排查该参数（若这正是桑基图红色路径子集，则相互印证）。" :
+      "过程能力不足，超规风险高 —— 该参数很可能是系统性根因（尤其当它正是桑基图红色路径子集时）。";
 
     var cards = [
       ["样本数 n", cur.n, 0],
