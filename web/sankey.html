@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设备问题共性分析 · 桑基图</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔧</text></svg>">
+<style>
+  :root{
+    --c-primary:#2f6db5;      /* 主题蓝 */
+    --c-fit:#e4572e;          /* NG 红 */
+    --good:#1a7f37; --ok:#0969da; --mar:#bf8700; --bad:#cf222e;
+    --bg:#f4f6f8; --card:#ffffff; --border:#dfe3e8; --text:#1f2328; --muted:#6a737d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--text);line-height:1.55;font-size:14px}
+  header{padding:18px 24px;background:linear-gradient(95deg,#1f2328,#32383f);color:#fff;
+         box-shadow:0 1px 4px rgba(0,0,0,.15)}
+  header h1{margin:0;font-size:19px;font-weight:650;letter-spacing:.3px}
+  header p{margin:5px 0 0;font-size:12.5px;color:#b9c0c8}
+  .wrap{display:flex;flex-wrap:wrap;gap:18px;padding:18px 24px;align-items:flex-start}
+  .panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px;
+         flex:1 1 330px;min-width:300px;box-shadow:0 1px 3px rgba(27,31,36,.04)}
+  .panel h2{margin:0 0 12px;font-size:14px;font-weight:650;color:#32383f;
+            border-bottom:2px solid #eef1f4;padding-bottom:8px;display:flex;align-items:center;gap:7px}
+  .step{background:#32383f;color:#fff;border-radius:50%;width:20px;height:20px;font-size:11px;
+        display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+  textarea{width:100%;height:160px;font-family:Consolas,Menlo,"Courier New",monospace;font-size:12.5px;
+           border:1px solid var(--border);border-radius:7px;padding:9px;resize:vertical;color:#1f2328}
+  textarea:focus{outline:none;border-color:var(--c-primary);box-shadow:0 0 0 3px rgba(47,109,181,.12)}
+  .row{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0}
+  .row label{flex:1 1 130px;font-size:12.5px;color:var(--muted);font-weight:550}
+  .row input[type=number]{width:100%;padding:7px 8px;margin-top:3px;border:1px solid var(--border);
+           border-radius:7px;font-size:13px;color:#1f2328}
+  .row input:focus{outline:none;border-color:var(--c-primary);box-shadow:0 0 0 3px rgba(47,109,181,.12)}
+  select{width:100%;padding:7px 8px;border:1px solid var(--border);border-radius:7px;font-size:13px;
+         background:#fff;color:#1f2328}
+  select:focus{outline:none;border-color:var(--c-primary);box-shadow:0 0 0 3px rgba(47,109,181,.12)}
+  .chk{font-size:13px;margin:5px 0;color:#32383f;display:flex;align-items:center;gap:7px;cursor:pointer}
+  .chk input{width:15px;height:15px;accent-color:var(--c-primary)}
+  button{background:var(--c-primary);color:#fff;border:0;border-radius:7px;padding:9px 16px;font-size:13px;
+         font-weight:600;cursor:pointer;margin-right:8px;transition:filter .15s}
+  button:hover{filter:brightness(1.08)}
+  button.sec{background:#eef1f4;color:#32383f}
+  button.sec:hover{background:#e2e7ec}
+  .dropzone{border:2px dashed var(--border);border-radius:9px;padding:18px;text-align:center;color:var(--muted);
+            font-size:13px;cursor:pointer;transition:.15s;margin-top:10px}
+  .dropzone:hover,.dropzone.over{border-color:var(--c-primary);background:#f0f6fd;color:#2f6db5}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5}
+  .parseinfo{font-size:12px;color:var(--muted);margin:6px 0 0;min-height:16px;line-height:1.5}
+  .parseinfo.ok{color:var(--good)}
+  .parseinfo.warn{color:var(--mar)}
+  .section-title{font-size:12.5px;font-weight:650;color:#32383f;margin:14px 0 6px;display:flex;align-items:center;gap:6px}
+  .tag{font-size:10.5px;background:#eef1f4;color:var(--muted);border-radius:4px;padding:1px 6px;font-weight:500}
+  .tag.num{background:#eaf3fb;color:#0969da}
+  table{border-collapse:collapse;font-size:12px;width:100%}
+  th,td{border:1px solid var(--border);padding:5px 8px;text-align:left}
+  th{background:#f3f5f7;font-weight:600;position:sticky;top:0}
+  tbody tr:nth-child(even){background:#fafbfc}
+  .scroll{max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:7px}
+  details{border:1px solid var(--border);border-radius:8px;padding:0 12px;margin-top:10px}
+  details summary{cursor:pointer;padding:9px 0;font-weight:600;font-size:12.5px;color:#32383f}
+  #chartBox{width:100%;min-height:480px;border:1px solid var(--border);border-radius:8px;background:#fff;margin-top:10px}
+  .legend{font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.6}
+  .legend .red{color:var(--bad);font-weight:600}
+  .legend .blue{color:#0969da;font-weight:600}
+  footer{text-align:center;color:var(--muted);font-size:11.5px;padding:16px}
+  #dropHint{position:fixed;left:0;top:0;right:0;bottom:0;z-index:999;display:none;
+    align-items:center;justify-content:center;background:rgba(31,35,40,.4);
+    color:#fff;font-size:21px;font-weight:600;letter-spacing:.5px;
+    pointer-events:none;backdrop-filter:blur(2px)}
+  #dropHint.drag{display:flex}
+  .empty-tip{color:var(--muted);font-size:12.5px;padding:20px 0;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>🔧 设备问题共性分析 · 桑基图</h1>
+  <p>上传数据表 → 自动识别表头 → 打钩选列 → 出图 · 离线单文件 · 无需安装 / 数据不出本机</p>
+</header>
+
+<div id="dropHint">📂 松开鼠标，导入数据文件（支持 .csv / .xlsx / .xls）</div>
+
+<div class="wrap">
+  <!-- ============ 面板 ① 数据 ============ -->
+  <div class="panel">
+    <h2><span class="step">1</span> 数据</h2>
+    <textarea id="dataArea" placeholder="直接粘贴 CSV / Excel 复制出来的表格：&#10;&#10;FlowCode,注水阀,注水量_g,判定结果&#10;KCHLZB00DV001115+A455P,A档,0.108,OK&#10;KCHLZB00DV001115+A455P,C档,0.102,NG&#10;&#10;或点击下方按钮选择文件 / 把文件拖进来"></textarea>
+    <div id="parseInfo" class="parseinfo"></div>
+    <div style="margin-top:10px">
+      <button id="btnLoad">解析表格</button>
+      <button id="btnSample" class="sec">加载示例数据</button>
+      <button id="btnClear" class="sec">清空</button>
+    </div>
+    <div class="dropzone" id="dropzone">📂 点击选择文件，或直接把文件拖到这里<br><span style="font-size:11px">支持 .csv / .xlsx / .xls（自动识别表头）</span></div>
+    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
+    <div class="hint">💡 没有现成数据？点「加载示例数据」先体验。</div>
+  </div>
+
+  <!-- ============ 面板 ② 选列 ============ -->
+  <div class="panel" id="panelSel" style="display:none">
+    <h2><span class="step">2</span> 打钩选择参与分析的列</h2>
+
+    <details id="headerBox">
+      <summary>📋 自动识别的表头（点开查看每列类型与样例值）</summary>
+      <div id="headerTable" class="scroll" style="margin-top:8px"></div>
+      <div id="previewTable" style="margin-top:8px">
+        <div class="section-title">数据预览（前 5 行）</div>
+        <div class="scroll"></div>
+      </div>
+    </details>
+
+    <div class="row">
+      <label>🎯 源列（条母 / 型号 / 批号）<select id="selSource"></select></label>
+      <label>🏁 结果列（NG / OK 判定）<select id="selResult"></select></label>
+    </div>
+
+    <div class="section-title">🔗 工序参数列（可多选，按勾选顺序形成链路）</div>
+    <div id="paramList"></div>
+
+    <div class="section-title">🚨 哪些值算「不良」？</div>
+    <div id="ngList" class="chk-wrap"></div>
+
+    <div class="row">
+      <label>源列保留多少个<select id="selTopN"></select></label>
+      <label>数值分箱数<select id="selBins"></select></label>
+    </div>
+    <div class="hint">颜色含义：<span style="color:var(--bad);font-weight:600">红 = 该路径 NG 明显偏多</span>，<span style="color:#0969da;font-weight:600">蓝 = 合格为主</span>。</div>
+  </div>
+
+  <!-- ============ 面板 ③ 出图 ============ -->
+  <div class="panel" style="flex:2 1 520px;min-width:420px">
+    <h2><span class="step">3</span> 出图</h2>
+    <div id="chartArea">
+      <div class="empty-tip">先在左侧选择好列，点击「🚀 生成桑基图」。</div>
+    </div>
+    <div style="margin-top:10px">
+      <button id="btnPlot" type="primary">🚀 生成桑基图</button>
+      <button id="btnPng" class="sec">💾 下载 PNG</button>
+      <span class="hint" style="display:inline-block;margin-left:6px">图上方工具条也能直接下载 PNG / 放大。</span>
+    </div>
+    <div id="statLine" class="legend"></div>
+    <div class="legend" style="margin-top:4px">
+      📖 读图方法：<span class="red">红色</span>流从哪一层开始分叉，问题就集中在哪一层 —— 例如某个型号 + 某个档位 + 某个数值区间一路红到 NG。
+    </div>
+  </div>
+</div>
+
+<footer>设备问题共性分析 · 离线单文件版 · 数据仅在你的浏览器内处理，不会上传任何内容</footer>
+
+<!-- 本地库（优先），失败则回退 CDN -->
+<script src="lib/plotly.min.js"></script>
+<script src="lib/xlsx.full.min.js"></script>
+<script src="sankey_core.js"></script>
+<script src="demo_data.js"></script>
+<script>
+"use strict";
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var state = { header: [], rows: [] };
+
+  // ---------- Plotly 兜底 ----------
+  if (typeof Plotly === "undefined") {
+    document.write('<script src="https:\/\/cdn.plot.ly\/plotly-2.35.2.min.js"><\/script>');
+  }
+
+  // ---------- 解析 CSV ----------
+  function textToRows(text){
+    var parsed = SankeyCore.parseDelimited(text);
+    if(!parsed.header.length){ return {header:[],rows:[]}; }
+    var rows = [];
+    for(var i=0;i<parsed.rows.length;i++){
+      var obj = {};
+      for(var j=0;j<parsed.header.length;j++){
+        obj[parsed.header[j]] = parsed.rows[i][j];
+      }
+      rows.push(obj);
+    }
+    return {header:parsed.header, rows:rows};
+  }
+
+  // ---------- 文件读取 ----------
+  function readFile(file){
+    var name = (file.name||"").toLowerCase();
+    if(name.endsWith(".xlsx") || name.endsWith(".xls")){
+      var reader = new FileReader();
+      reader.onload = function(e){
+        try{
+          var wb = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
+          var ws = wb.Sheets[wb.SheetNames[0]];
+          var aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:""});
+          if(!aoa.length){ setInfo("文件内容为空", "warn"); return; }
+          var header = aoa[0].map(function(h){ return String(h).trim(); });
+          var rows = [];
+          for(var i=1;i<aoa.length;i++){
+            var obj = {};
+            var empty = true;
+            for(var j=0;j<header.length;j++){
+              var v = aoa[i][j];
+              obj[header[j]] = (v===null||v===undefined) ? "" : String(v);
+              if(obj[header[j]]!=="") empty = false;
+            }
+            if(!empty) rows.push(obj);
+          }
+          loadData(header, rows, name);
+        }catch(err){
+          setInfo("Excel 解析失败: "+err.message, "warn");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      // CSV: 自动尝试 GBK / UTF-8
+      var r2 = new FileReader();
+      r2.onload = function(e){
+        var buf = new Uint8Array(e.target.result);
+        var text = null;
+        try{ text = new TextDecoder("gbk",{fatal:true}).decode(buf); }
+        catch(_){ try{ text = new TextDecoder("utf-8",{fatal:true}).decode(buf); }
+          catch(__){ text = new TextDecoder("utf-8").decode(buf); } }
+        var parsed = textToRows(text);
+        if(parsed.header.length) loadData(parsed.header, parsed.rows, name);
+        else setInfo("未能识别表头，请确认文件首行为列名", "warn");
+      };
+      r2.readAsArrayBuffer(file);
+    }
+  }
+
+  // ---------- 状态加载 ----------
+  function loadData(header, rows, name){
+    state.header = header;
+    state.rows = rows;
+    $("panelSel").style.display = "";
+    setInfo("已载入「"+(name||"粘贴数据")+"」："+rows.length.toLocaleString()+" 行 × "+header.length+" 列", "ok");
+    renderHeaderTable();
+    renderSelects();
+    autoRecommend();
+  }
+
+  function setInfo(msg, cls){
+    var el = $("parseInfo");
+    el.textContent = msg;
+    el.className = "parseinfo " + (cls||"");
+  }
+
+  // ---------- 表头识别表 ----------
+  function colType(header, col){
+    var vals = [];
+    for(var i=0;i<Math.min(state.rows.length, 200);i++){
+      vals.push(state.rows[i][col]);
+    }
+    return SankeyCore.isNumericColumn(vals) ? "num" : "txt";
+  }
+
+  function renderHeaderTable(){
+    var html = '<table><thead><tr><th>列名</th><th>类型</th><th>唯一值数</th><th>样例值</th></tr></thead><tbody>';
+    for(var i=0;i<state.header.length;i++){
+      var col = state.header[i];
+      var uniq = new Set();
+      var samples = [];
+      var s = 0;
+      for(var j=0;j<state.rows.length;j++){
+        var v = state.rows[j][col];
+        uniq.add(String(v));
+        if(s<3){ samples.push(String(v)); s++; }
+      }
+      var type = colType(state.header, col);
+      html += '<tr><td><strong>'+esc(col)+'</strong></td>'+
+              '<td><span class="tag '+(type==="num"?"num":"")+'">'+(type==="num"?"数值":"文本")+'</span></td>'+
+              '<td>'+uniq.size+'</td>'+
+              '<td>'+esc(samples.join("、").slice(0,50))+'</td></tr>';
+    }
+    html += '</tbody></table>';
+    $("headerTable").innerHTML = html;
+
+    // 预览表
+    var p = '<table><thead><tr>';
+    for(var h=0;h<state.header.length;h++) p += '<th>'+esc(state.header[h])+'</th>';
+    p += '</tr></thead><tbody>';
+    for(var r=0;r<Math.min(state.rows.length,5);r++){
+      p += '<tr>';
+      for(var c=0;c<state.header.length;c++) p += '<td>'+esc(String(state.rows[r][state.header[c]]))+'</td>';
+      p += '</tr>';
+    }
+    p += '</tbody></table>';
+    $("previewTable").querySelector(".scroll").innerHTML = p;
+  }
+
+  // ---------- 列选择控件 ----------
+  function renderSelects(){
+    var s = $("selSource");
+    s.innerHTML = "";
+    state.header.forEach(function(c){
+      var o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      s.appendChild(o);
+    });
+    var r = $("selResult");
+    r.innerHTML = "";
+    state.header.forEach(function(c){
+      var o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      r.appendChild(o);
+    });
+    renderParams();
+    renderNg();
+    renderRange($("selTopN"), 2, 20, 6);
+    renderRange($("selBins"), 2, 10, 5);
+  }
+
+  function renderRange(sel, min, max, def){
+    sel.innerHTML = "";
+    for(var i=min;i<=max;i++){
+      var o = document.createElement("option");
+      o.value = i; o.textContent = i;
+      if(i===def) o.selected = true;
+      sel.appendChild(o);
+    }
+  }
+
+  function sourceCol(){ return $("selSource").value; }
+  function resultCol(){ return $("selResult").value; }
+
+  function paramCandidates(){
+    return state.header.filter(function(c){ return c!==sourceCol() && c!==resultCol(); });
+  }
+
+  function renderParams(){
+    var list = $("paramList");
+    list.innerHTML = "";
+    var cands = paramCandidates();
+    if(!cands.length){ list.innerHTML = '<div class="empty-tip">没有可选的参数列（源列和结果列占了全部列）</div>'; return; }
+    cands.forEach(function(col){
+      var label = document.createElement("label");
+      label.className = "chk";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = col;
+      cb.checked = true; // 默认全勾
+      label.appendChild(cb);
+      var type = colType(state.header, col);
+      label.appendChild(document.createTextNode(" "+col+" "));
+      var tag = document.createElement("span");
+      tag.className = "tag "+(type==="num"?"num":"");
+      tag.textContent = type==="num"?"数值":"文本";
+      label.appendChild(tag);
+      list.appendChild(label);
+    });
+  }
+
+  function renderNg(){
+    var list = $("ngList");
+    list.innerHTML = "";
+    var col = resultCol();
+    if(!col) return;
+    var uniq = [];
+    var seen = {};
+    for(var i=0;i<state.rows.length;i++){
+      var v = String(state.rows[i][col]).trim();
+      if(v==="") continue;
+      var key = v.toUpperCase();
+      if(!seen[key]){ seen[key]=true; uniq.push({display:v, key:key}); }
+    }
+    if(!uniq.length){ list.innerHTML = '<div class="empty-tip">结果列没有数据</div>'; return; }
+    uniq.forEach(function(u){
+      var label = document.createElement("label");
+      label.className = "chk";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = u.display;
+      cb.checked = (u.key==="NG"); // 默认只勾 NG
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(" "+u.display));
+      list.appendChild(label);
+    });
+  }
+
+  $("selSource").addEventListener("change", renderParams);
+  $("selResult").addEventListener("change", function(){ renderParams(); renderNg(); });
+
+  // ---------- 自动推荐 ----------
+  function autoRecommend(){
+    var srcKw = ["flowcode","条母","型号","批号","产品","编号","物料","code","id"];
+    var resKw = ["判定","结果","ng","ok","pass","fail","合格","不良","判"];
+    var sc = "", rc = "";
+    for(var i=0;i<state.header.length;i++){
+      var low = state.header[i].toLowerCase();
+      if(!sc && srcKw.some(function(k){return low.indexOf(k)>=0;})) sc = state.header[i];
+      if(!rc && resKw.some(function(k){return low.indexOf(k)>=0;})) rc = state.header[i];
+    }
+    if(sc) $("selSource").value = sc;
+    if(rc) $("selResult").value = rc;
+    renderParams();
+    renderNg();
+  }
+
+  // ---------- 出图 ----------
+  $("btnPlot").addEventListener("click", function(){
+    if(!state.header.length){ setInfo("请先加载数据", "warn"); return; }
+    var params = [];
+    var boxes = $("paramList").querySelectorAll("input[type=checkbox]");
+    boxes.forEach(function(b){ if(b.checked) params.push(b.value); });
+    if(!params.length){ alert("请至少勾选 1 个工序参数列"); return; }
+
+    var ngVals = [];
+    $("ngList").querySelectorAll("input[type=checkbox]").forEach(function(b){ if(b.checked) ngVals.push(b.value); });
+    if(!ngVals.length){ alert("请至少勾选 1 个值作为「不良」"); return; }
+
+    var result = SankeyCore.buildSankey({
+      data: state.rows,
+      sourceCol: sourceCol(),
+      paramCols: params,
+      resultCol: resultCol(),
+      ngValues: ngVals,
+      topN: parseInt($("selTopN").value, 10),
+      bins: parseInt($("selBins").value, 10),
+    });
+
+    if(!result){ $("chartArea").innerHTML = '<div class="empty-tip">没有可绘制的数据</div>'; return; }
+
+    var data = [{
+      type: "sankey",
+      arrangement: "snap",
+      node: {
+        pad: 12, thickness: 14,
+        line: { color: "black", width: 0.5 },
+        label: result.nodes.label,
+        color: result.nodes.color,
+        customdata: result.nodes.ngRatio.map(function(r){return [r];}),
+        hovertemplate: "%{label}<br>下游 NG 占比: %{customdata[0]:.1%}<extra></extra>",
+      },
+      link: {
+        source: result.links.source,
+        target: result.links.target,
+        value: result.links.value,
+        color: result.links.color,
+        hovertemplate: "%{source.label} → %{target.label}<br>样本数: %{value}<extra></extra>",
+      },
+    }];
+
+    var layout = {
+      title: { text: result.title, x: 0.5 },
+      font: { family: "Microsoft YaHei, Arial", size: 12 },
+      height: 560,
+      margin: { l: 10, r: 10, t: 60, b: 30 },
+      paper_bgcolor: "#fff",
+    };
+
+    $("chartArea").innerHTML = '<div id="chartBox"></div>';
+    Plotly.newPlot("chartBox", data, layout, { responsive: true, displaylogo: false });
+
+    $("statLine").innerHTML =
+      "📊 共 " + state.rows.length.toLocaleString() + " 条记录，" +
+      "NG 占比 <b>" + (result.baselineNg*100).toFixed(1) + "%</b>，" +
+      params.length + " 层工序参数，源列「" + esc(sourceCol()) + "」保留 Top-" + $("selTopN").value;
+  });
+
+  // ---------- 下载 PNG ----------
+  $("btnPng").addEventListener("click", function(){
+    var chart = document.getElementById("chartBox");
+    if(!chart || typeof Plotly === "undefined"){ alert("请先生成桑基图"); return; }
+    var gd = chart.querySelector(".js-plotly-plot");
+    if(!gd){ alert("请先生成桑基图"); return; }
+    Plotly.toImage(gd, { format: "png", width: 1400, height: 800, scale: 2 }).then(function(url){
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "sankey.png";
+      a.click();
+    }).catch(function(e){ alert("PNG 导出失败: " + e.message); });
+  });
+
+  // ---------- 事件绑定 ----------
+  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+  $("btnLoad").addEventListener("click", function(){
+    var parsed = textToRows($("dataArea").value);
+    if(parsed.header.length) loadData(parsed.header, parsed.rows, "粘贴数据");
+    else setInfo("未能识别表头，请确认首行为列名（用逗号/制表符分隔）", "warn");
+  });
+
+  $("btnSample").addEventListener("click", function(){
+    if(typeof DEMO_CSV === "undefined"){ setInfo("示例数据未内置", "warn"); return; }
+    var parsed = textToRows(DEMO_CSV);
+    loadData(parsed.header, parsed.rows, "示例数据 demo");
+    $("dataArea").value = DEMO_CSV.slice(0, 600) + "\n…（共 800 行，已省略）";
+  });
+
+  $("btnClear").addEventListener("click", function(){
+    $("dataArea").value = "";
+    state.header = []; state.rows = [];
+    $("panelSel").style.display = "none";
+    $("chartArea").innerHTML = '<div class="empty-tip">已清空。加载新数据后重新选择。</div>';
+    $("statLine").innerHTML = "";
+    setInfo("已清空");
+  });
+
+  // 拖拽
+  var dz = $("dropzone");
+  var fileInput = $("fileInput");
+  dz.addEventListener("click", function(){ fileInput.click(); });
+  fileInput.addEventListener("change", function(){ if(fileInput.files.length) readFile(fileInput.files[0]); fileInput.value=""; });
+
+  var hint = $("dropHint");
+  var dragCounter = 0;
+  document.addEventListener("dragenter", function(e){ e.preventDefault(); dragCounter++; hint.classList.add("drag"); });
+  document.addEventListener("dragover", function(e){ e.preventDefault(); });
+  document.addEventListener("dragleave", function(e){ e.preventDefault(); dragCounter--; if(dragCounter<=0){ dragCounter=0; hint.classList.remove("drag"); } });
+  document.addEventListener("drop", function(e){
+    e.preventDefault();
+    dragCounter = 0;
+    hint.classList.remove("drag");
+    if(e.dataTransfer.files.length) readFile(e.dataTransfer.files[0]);
+  });
+})();
+</script>
+</body>
+</html>

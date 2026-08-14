@@ -1,9 +1,23 @@
 # 设备问题共性分析 · 桑基图
 
-> 一个面向制造业数据处理场景的"桑基图(Sankey)"可视化模板。
+> 一个面向制造业数据处理场景的"桑基图(Sankey)"可视化工具。
 > 帮你一眼看清**设备问题集中在哪个工艺参数、哪个组合最容易 NG**。
 
-![示例桑基图](docs/sankey_example.png)
+![示例桑基图](docs/sankey_web_example.png)
+
+---
+
+## 快速开始（推荐：Web 离线版，零依赖）
+
+**双击打开 [`web/sankey.html`](web/sankey.html) 即可使用** —— 无需装任何东西，无需联网，数据不出本机。
+
+1. 把包含**各种表头**的数据表（CSV / Excel）拖进页面，或直接粘贴
+2. 自动识别表头，展示每列的**类型 / 唯一值数 / 样例值**
+3. **打钩选择**：源列（条母/型号）、工序参数列（可多选）、结果列（NG/OK 判定）
+4. 选择哪些值算「不良」
+5. 一键出图，支持下载 PNG
+
+> 网页版用本地 Plotly.js 渲染，完整离线。整个 `web/` 目录拷到任何电脑（含内网）都能用。
 
 ---
 
@@ -38,9 +52,9 @@ FlowCode → 注水阀 → 注水量 → 扬水通量 → 肘存量 → NG / OK
 
 ---
 
-## 快速开始
+## 命令行版（Python，可选）
 
-零基础也能跑通。
+网页版足够日常使用。如果想批量处理 / 集成到脚本里，也可以用 Python 版：
 
 ```bash
 # 1. 克隆仓库
@@ -53,19 +67,18 @@ pip install -r requirements.txt
 # 3. 跑一遍 demo 数据
 python src/generate_demo_data.py
 
-# 4. 生成桑基图 (HTML 交互式, 会自动弹浏览器 / 也可直接打开 examples/sankey_demo.html)
+# 4. 生成桑基图 (HTML 交互式, 也可直接打开 examples/sankey_demo.html)
 python src/sankey_analysis.py
 ```
 
-输出：
-- `examples/sankey_demo.html` — 交互式桑基图，鼠标悬停看样本数
-- 控制台打印每层链接的样本数
-
-命令行参数：
+命令行参数（列名随意指定，不再写死）：
 
 ```bash
-# 保留数量最多的 8 个 FlowCode, 连续值分 6 箱, 同时导出 PNG
-python src/sankey_analysis.py --top-n 8 --bins 6 --out-png docs/sankey_example.png
+# 指定源列 / 参数列 / 结果列，Top-8，分 6 箱，同时导出 PNG
+python src/sankey_analysis.py --source-col FlowCode \
+    --param-cols 注水阀 注水量_g 扬水通量 肘存量 \
+    --result-col 判定结果 --top-n 8 --bins 6 \
+    --out-png docs/sankey_example.png
 ```
 
 ---
@@ -81,7 +94,15 @@ equipment-failure-commonality/
 │   └── demo_equipment_issues.csv      # 示例数据 (800 条模拟设备工艺记录)
 ├── src/
 │   ├── generate_demo_data.py         # 生成模拟数据
-│   └── sankey_analysis.py            # 核心: 读取 CSV → 桑基图
+│   └── sankey_analysis.py            # 核心: 任意列组合 → 桑基图
+├── web/                              # Web 离线版 (双击即用, 推荐)
+│   ├── sankey.html                   #   主界面
+│   ├── sankey_core.js                #   核心计算逻辑 (JS)
+│   ├── demo_data.js                  #   内置示例数据
+│   ├── lib/
+│   │   ├── plotly.min.js             #   本地绘图库 (离线可用)
+│   │   └── xlsx.full.min.js          #   本地 Excel 解析库
+│   └── test_core.js                  #   核心逻辑自测 (node test_core.js)
 ├── examples/
 │   └── sankey_demo.html              # 运行后产出 (git 忽略)
 └── docs/
@@ -110,17 +131,20 @@ equipment-failure-commonality/
 
 ## 代码走读（5 分钟看懂）
 
-`src/sankey_analysis.py` 的核心流水线只有 5 步：
+Python 版 `src/sankey_analysis.py` 的核心流水线：
 
-| 步骤 | 函数 / 代码块                          | 作用                                  |
-|------|----------------------------------------|---------------------------------------|
-| 1    | `bin_continuous`                       | 连续值分箱 (例: `0.108` → `[0.105, 0.110]`) |
-| 2    | `work["FlowCode"].where(...)`          | 数量少的型号合并成 "其他 FlowCode"     |
-| 3    | `groupby([left, right]).size()` ×5 层   | 统计每两个相邻层的共现次数 (即链路 value) |
-| 4    | `_mix_color` / `_color_for_link`       | 按 NG 占比计算节点 / 链路颜色          |
-| 5    | `go.Sankey(...)`                       | 喂给 Plotly 出图                       |
+| 步骤 | 函数 / 代码块                              | 作用                                  |
+|------|---------------------------------------------|---------------------------------------|
+| 1    | `bin_continuous`                            | 连续值分箱 (例: `0.108` → `[0.105, 0.110]`) |
+| 2    | `prepare_layer_col`                         | 自动判断数值/离散列，离散列合并低频类别为"其他" |
+| 3    | `work.groupby([left, right]).size()` ×N 层  | 任意数量参数列，逐层统计共现次数 (链路 value) |
+| 4    | `_mix_color` / `_color_for_link`            | 按"相对基线 NG 占比"计算节点 / 链路颜色 |
+| 5    | `go.Sankey(...)`                            | 喂给 Plotly 出图                       |
 
-如果你想扩展（不是 5 层、是 N 层），只要复制第 3 步的 `_layer()` 即可。
+核心入口是 `build_sankey(df, source_col, param_cols, result_col, ...)` —— 参数列是**列表**，传几个就有几层。
+
+> Web 版 `web/sankey_core.js` 与 Python 版算法完全一致（分箱、合并、染色逻辑同步），
+> 只是换成了纯 JS，方便浏览器里离线跑。
 
 ---
 
@@ -131,8 +155,15 @@ equipment-failure-commonality/
 import pandas as pd
 from src.sankey_analysis import build_sankey
 
-df = pd.read_csv("your_data.csv")  # 只要列名一致
-fig = build_sankey(df, top_n_flowcodes=6, continuous_bins=5)
+df = pd.read_csv("your_data.csv")  # 列名随意，指定即可
+fig = build_sankey(
+    df,
+    source_col="产品型号",          # 源列
+    param_cols=["注塑温度", "保压时间", "冷却水流量"],  # 工序参数列（任意数量）
+    result_col="判定结果",          # 结果列
+    top_n=6,
+    continuous_bins=5,
+)
 fig.write_html("your_sankey.html")
 fig.show()
 ```
@@ -185,11 +216,12 @@ python src/sankey_analysis.py --csv data/your_data.csv --out-html examples/your.
 ## 路线图
 
 - [x] demo 数据生成器
-- [x] 桑基图核心 (FlowCode → 4 工序 → NG/OK)
+- [x] 桑基图核心 (任意参数列组合, 不再写死 5 层)
+- [x] Web 离线版 (双击即用, 自动识别表头 + 打钩选列)
+- [x] 本地 Plotly.js / SheetJS (完全离线可用)
 - [ ] 支持中文 / 英文图例切换
-- [ ] 自动导出 PNG 到 docs/
-- [ ] 支持任意层数 (用户自定义工序)
 - [ ] 增加"指定 NG 子集分析"模式 (只看 NG 样本的路径)
+- [ ] 深色 / 浅色主题切换
 
 ---
 

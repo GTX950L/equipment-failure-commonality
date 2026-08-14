@@ -21,3 +21,12 @@ examples/*.png
 data/*.csv
 !data/demo_equipment_issues.csv
 *.tmp
+
+# npm 临时产物 (web/lib/*.js 已提取, 需保留提交)
+web/node_modules/
+web/package.json
+web/package-lock.json
+
+# 浏览器自动化临时文件
+.playwright-cli/
+sankey_web.png
