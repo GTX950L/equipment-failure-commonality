@@ -528,15 +528,20 @@
     return -p * Math.log2(p) - (1 - p) * Math.log2(1 - p);
   }
 
-  function scoreColumns(data, header, sourceCol, resultCol, ngValues, bins) {
+  function scoreColumns(data, header, sourceCol, resultCol, ngValues, bins, maxRows) {
     /**
      * 评估每个候选参数列"区分 NG/OK"的信息增益(0~1)。
      * 返回 { 列名: 分数 }, 排除规则命中的列得 -1。
      * - 数值列: 分箱后按组计算 IG
      * - 离散列: 高基数(唯一值过多)排除, 否则按类别计算 IG
      * - 时间/编号/设备等元数据列: 按列名启发式排除
+     * maxRows: 大数据集评估采样上限(默认 3000, 保持分布采样)
      */
     bins = bins || 5;
+    if (data.length > (maxRows || 3000)) {
+      const step = Math.ceil(data.length / (maxRows || 3000));
+      data = data.filter(function (_, i) { return i % step === 0; });
+    }
     const ngSet = {};
     (ngValues || []).forEach(function (v) {
       ngSet[String(v).trim().toUpperCase()] = true;
