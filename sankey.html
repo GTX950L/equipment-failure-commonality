@@ -332,20 +332,23 @@
 
   function renderHeaderTable(){
     var html = '<table><thead><tr><th>列名</th><th>类型</th><th>唯一值数</th><th>样例值</th></tr></thead><tbody>';
+    // 大数据集采样识别, 最多看前 1000 行
+    var limit = Math.min(state.rows.length, 1000);
     for(var i=0;i<state.header.length;i++){
       var col = state.header[i];
       var uniq = new Set();
       var samples = [];
       var s = 0;
-      for(var j=0;j<state.rows.length;j++){
+      for(var j=0;j<limit;j++){
         var v = state.rows[j][col];
         uniq.add(String(v));
         if(s<3){ samples.push(String(v)); s++; }
       }
       var type = colType(state.header, col);
+      var uniqLabel = (state.rows.length > limit ? "≥" : "") + uniq.size;
       html += '<tr><td><strong>'+esc(col)+'</strong></td>'+
               '<td><span class="tag '+(type==="num"?"num":"")+'">'+(type==="num"?"数值":"文本")+'</span></td>'+
-              '<td>'+uniq.size+'</td>'+
+              '<td>'+uniqLabel+'</td>'+
               '<td>'+esc(samples.join("、").slice(0,50))+'</td></tr>';
     }
     html += '</tbody></table>';
@@ -415,12 +418,12 @@
       var sb = scores[b] === undefined ? 0 : scores[b];
       return sb - sa;
     });
-    // 自动勾选策略: 候选参数列少则全勾; 多则精选分数最高的前 N 个(最多 8 个)
+    // 自动勾选策略: 候选参数列少则全勾; 多则精选分数最高的前 N 个(最多 5 个, 保持图清晰流畅)
     var valid = cands.filter(function(c){
       var s = scores[c];
       return s !== undefined && s >= 0;
     });
-    var autoCount = Math.min(8, valid.length);
+    var autoCount = Math.min(5, valid.length);
     var autoChecked = 0;
     cands.forEach(function(col, idx){
       var label = document.createElement("label");
@@ -606,6 +609,7 @@
         target: result.links.target,
         value: result.links.value,
         color: result.links.color,
+        hoverinfo: "none",
         hovertemplate: "%{source.label} → %{target.label}<br>样本数: %{value}<extra></extra>",
       },
     }];
@@ -642,11 +646,41 @@
   }
   $("btnPlot").addEventListener("click", plotSankey);
 
-  // 配色模式切换 → 自动重新出图
+  // 配色模式切换 → 只更新颜色 (restyle), 不重建整图
+  function replotColor(){
+    if(!state.header.length || !document.querySelector("#chartBox")) return;
+    var params = [];
+    document.querySelectorAll("#paramList input[type=checkbox]:checked").forEach(function(b){ params.push(b.value); });
+    if(!params.length) return;
+    var ngVals = [];
+    document.querySelectorAll("#ngList input[type=checkbox]:checked").forEach(function(b){ ngVals.push(b.value); });
+    if(!ngVals.length) return;
+    var result = SankeyCore.buildSankey({
+      data: state.rows,
+      sourceCol: sourceCol(),
+      paramCols: params,
+      resultCol: resultCol(),
+      ngValues: ngVals,
+      topN: parseInt($("selTopN").value, 10),
+      bins: parseInt($("selBins").value, 10),
+      colorMode: state.colorMode,
+    });
+    if(!result) return;
+    state.cpkResult = result;
+    syncColorbarLabel();
+    var gd = document.querySelector(".js-plotly-plot");
+    if(gd){
+      Plotly.restyle(gd, {
+        "node.color": [result.nodes.color],
+        "link.color": [result.links.color],
+      }, [0]);
+    }
+  }
+
   document.querySelectorAll('input[name="colorMode"]').forEach(function(rb){
     rb.addEventListener("change", function(){
       state.colorMode = rb.value;
-      if(state.header.length && document.querySelector("#chartBox")) plotSankey();
+      replotColor();
     });
   });
 
@@ -718,7 +752,7 @@
       }
       renderCpkScope();
       renderFilterBar();
-      if($("cpkParam").value) calcCpk();
+      scheduleCalcCpk();
     });
   }
 
@@ -746,9 +780,19 @@
     renderCpkParams();
     $("cpkParam").onchange = function(){
       $("cpkLsl").value = ""; $("cpkUsl").value = "";   // 换参数清空旧规格
-      if(state.header.length) calcCpk();
+      if(state.header.length) scheduleCalcCpk();
     };
-    $("btnCpk").onclick = function(){ calcCpk(); };
+    $("btnCpk").onclick = function(){ clearTimeout(cpkTimer); calcCpk(); };
+  }
+
+  // 判断列是否为日期/时间类(如 "2026-08-09 09:20:30"), 避免被 parseFloat 误判为数值
+  function isDateLikeCol(col){
+    for(var i=0;i<Math.min(state.rows.length, 50);i++){
+      var v = String(state.rows[i][col]).trim();
+      if(v === "") continue;
+      return /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(v);
+    }
+    return false;
   }
 
   function renderCpkParams(){
@@ -756,9 +800,16 @@
     sel.innerHTML = "";
     var resCol = resultCol();
     var first = null;
+    // 元数据/时间类列不作为 CPK 分析参数
+    var skipKw = ["时间","时刻","日期","time","date","cdate","编号","码","id","user",
+                  "name","设备","车间","线别","部门","站点","通道","异常","错误",
+                  "code","retest","工单","单据","pcid","rework","返工","复测","操作员"];
     state.header.forEach(function(c){
       if(colType(state.header, c) !== "num") return;
       if(c === resCol) return;   // 结果列不算数值参数
+      if(isDateLikeCol(c)) return;   // 日期列误判为数值
+      var low = String(c).toLowerCase();
+      if(skipKw.some(function(k){ return low.indexOf(k) >= 0; })) return;  // 元数据列
       var o = document.createElement("option");
       o.value = c; o.textContent = c;
       sel.appendChild(o);
@@ -803,7 +854,7 @@
         state.cpkScope = o[0];
         renderCpkScope();
         renderFilterBar();
-        if($("cpkParam").value) calcCpk();
+        scheduleCalcCpk();
       });
       label.appendChild(input);
       label.appendChild(document.createTextNode(" " + o[1]));
@@ -831,7 +882,7 @@
         clearHighlight();
         renderCpkScope();
         renderFilterBar();
-        if($("cpkParam").value) calcCpk();
+        scheduleCalcCpk();
       });
       $("btnExportFilter").addEventListener("click", function(){
         var rows = getScopeRows();
@@ -962,6 +1013,15 @@
     var ng = SankeyCore.calcCpK(ngVals, lsl, usl);
 
     renderCpkResult(cur, all, ok, ng, lsl, usl, param, lslGiven, uslGiven, curVals);
+  }
+
+  // CPK 防抖: 点击节点/切换范围等自动触发时合并连续操作, 避免频繁重绘
+  var cpkTimer = null;
+  function scheduleCalcCpk(){
+    clearTimeout(cpkTimer);
+    cpkTimer = setTimeout(function(){
+      scheduleCalcCpk();
+    }, 250);
   }
 
   function getOkRows(){
