@@ -72,6 +72,20 @@
     pointer-events:none;backdrop-filter:blur(2px)}
   #dropHint.drag{display:flex}
   .empty-tip{color:var(--muted);font-size:12.5px;padding:20px 0;text-align:center}
+  /* CPK 面板 */
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(86px,1fr));gap:8px;margin:10px 0}
+  .metric{background:#fbfcfd;border:1px solid var(--border);border-left:4px solid #c9d1d9;
+          border-radius:8px;padding:8px;text-align:center}
+  .metric .k{font-size:10.5px;color:var(--muted)}
+  .metric .v{font-size:17px;font-weight:700;margin-top:2px;color:#1f2328}
+  .verdict{margin:8px 0;padding:10px 13px;border-radius:8px;font-size:13px;font-weight:600;
+           display:flex;align-items:center;gap:9px;border:1px solid}
+  .verdict .badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;color:#fff;letter-spacing:.5px}
+  .cmp-table td{font-variant-numeric:tabular-nums}
+  .cpk-chart{width:100%;height:260px;margin-top:10px;border:1px solid var(--border);border-radius:8px;background:#fff}
+  .chip{display:inline-block;background:#eef1f4;color:#32383f;border-radius:20px;padding:3px 12px;font-size:12px;
+        margin:2px 5px 2px 0;cursor:pointer;border:1px solid transparent}
+  .chip.sel{background:#eaf3fb;border-color:#2f6db5;color:#0969da;font-weight:600}
 </style>
 </head>
 <body>
@@ -144,6 +158,28 @@
     <div class="legend" style="margin-top:4px">
       📖 读图方法：<span class="red">红色</span>流从哪一层开始分叉，问题就集中在哪一层 —— 例如某个型号 + 某个档位 + 某个数值区间一路红到 NG。
     </div>
+
+    <!-- ============ CPK 联合分析面板 ============ -->
+    <details id="cpkBox" style="margin-top:14px">
+      <summary>📐 CPK 过程能力分析（联合判定）</summary>
+      <div class="hint" style="margin:6px 0 10px">
+        点击图上任意节点（如红色型号 / 参数区间），自动筛选出该子集；对比「子集 vs 全量 vs OK」的过程能力，
+        判断红色路径到底是<b>参数真的偏移/发散</b>（CPK 低），还是<b>另有其因</b>（CPK 正常）。
+      </div>
+
+      <div class="section-title">数据范围（点击图上节点会自动切到"当前筛选"）</div>
+      <div id="cpkScope"></div>
+      <div id="cpkFilterBar" style="display:none;margin-top:8px"></div>
+
+      <div class="row">
+        <label>分析参数（数值列）<select id="cpkParam"></select></label>
+        <label>下限 LSL<input type="number" id="cpkLsl" step="any" placeholder="留空=μ-3σ"></label>
+        <label>上限 USL<input type="number" id="cpkUsl" step="any" placeholder="留空=μ+3σ"></label>
+      </div>
+      <button id="btnCpk">📐 计算 CPK</button>
+      <span class="hint" style="display:inline-block;margin-left:6px">规格限 LSL/USL 请填图纸 / 客户标准值，留空则用 μ±3σ 试算占位。</span>
+      <div id="cpkResult" style="margin-top:10px"></div>
+    </details>
   </div>
 </div>
 
@@ -158,7 +194,13 @@
 "use strict";
 (function(){
   var $ = function(id){ return document.getElementById(id); };
-  var state = { header: [], rows: [] };
+  var state = {
+    header: [],
+    rows: [],
+    filter: null,          // 点击节点筛选条件: {col, value}
+    cpkScope: "all",       // all | filter | ok | ng
+    cpkResult: null,       // 最近一次 buildSankey 结果（含节点 customdata）
+  };
 
   // ---------- Plotly 兜底 ----------
   if (typeof Plotly === "undefined") {
@@ -230,11 +272,15 @@
   function loadData(header, rows, name){
     state.header = header;
     state.rows = rows;
+    state.filter = null;
+    state.cpkScope = "all";
+    state.cpkResult = null;
     $("panelSel").style.display = "";
     setInfo("已载入「"+(name||"粘贴数据")+"」："+rows.length.toLocaleString()+" 行 × "+header.length+" 列", "ok");
     renderHeaderTable();
     renderSelects();
     autoRecommend();
+    initCpkPanel();
   }
 
   function setInfo(msg, cls){
@@ -426,7 +472,7 @@
         line: { color: "black", width: 0.5 },
         label: result.nodes.label,
         color: result.nodes.color,
-        customdata: result.nodes.ngRatio.map(function(r){return [r];}),
+        customdata: result.nodes.customdata, // [NG占比, 层索引, 列名]
         hovertemplate: "%{label}<br>下游 NG 占比: %{customdata[0]:.1%}<extra></extra>",
       },
       link: {
@@ -448,11 +494,14 @@
 
     $("chartArea").innerHTML = '<div id="chartBox"></div>';
     Plotly.newPlot("chartBox", data, layout, { responsive: true, displaylogo: false });
+    state.cpkResult = result;
+    bindSankeyClick();
 
     $("statLine").innerHTML =
       "📊 共 " + state.rows.length.toLocaleString() + " 条记录，" +
       "NG 占比 <b>" + (result.baselineNg*100).toFixed(1) + "%</b>，" +
-      params.length + " 层工序参数，源列「" + esc(sourceCol()) + "」保留 Top-" + $("selTopN").value;
+      params.length + " 层工序参数，源列「" + esc(sourceCol()) + "」保留 Top-" + $("selTopN").value +
+      "。<br>💡 点击图上任意节点，可在下方 CPK 面板对该子集做能力分析。";
   });
 
   // ---------- 下载 PNG ----------
@@ -468,6 +517,326 @@
       a.click();
     }).catch(function(e){ alert("PNG 导出失败: " + e.message); });
   });
+
+  // ============================================================
+  // CPK 联合分析面板
+  // ============================================================
+  function scopeLabel(){
+    var map = { all: "全量", filter: "当前筛选", ok: "仅 OK", ng: "仅 NG" };
+    return map[state.cpkScope] || "全量";
+  }
+
+  function bindSankeyClick(){
+    var chart = document.getElementById("chartBox");
+    if(!chart || typeof Plotly === "undefined" || !state.cpkResult) return;
+    chart.on("plotly_click", function(event){
+      if(!event || !event.points || !event.points.length) return;
+      var p = event.points[0];
+      var cd = state.cpkResult.nodes.customdata;
+      var info = cd[p.pointNumber];
+      // 点击到链路(p.pointNumber 越界) 或信息不完整 → 忽略
+      if(!info || !Array.isArray(info) || info.length < 4) return;
+      var layerIdx = info[1], col = info[2], val = info[3];
+      if(!col || state.header.indexOf(col) < 0) return;
+
+      if(val === "NG" || val === "OK"){
+        // 点击结果层节点 → 只看该结果的子集
+        state.filter = null;
+        state.cpkScope = (val === "NG") ? "ng" : "ok";
+      } else {
+        state.filter = { col: col, value: val, layerIdx: layerIdx };
+        state.cpkScope = "filter";
+      }
+      renderCpkScope();
+      renderFilterBar();
+      if($("cpkParam").value) calcCpk();
+    });
+  }
+
+  function initCpkPanel(){
+    renderCpkScope();
+    renderFilterBar();
+    renderCpkParams();
+    $("cpkParam").onchange = function(){
+      $("cpkLsl").value = ""; $("cpkUsl").value = "";   // 换参数清空旧规格
+      if(state.header.length) calcCpk();
+    };
+    $("btnCpk").onclick = function(){ calcCpk(); };
+  }
+
+  function renderCpkParams(){
+    var sel = $("cpkParam");
+    sel.innerHTML = "";
+    var resCol = resultCol();
+    var first = null;
+    state.header.forEach(function(c){
+      if(colType(state.header, c) !== "num") return;
+      if(c === resCol) return;   // 结果列不算数值参数
+      var o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      sel.appendChild(o);
+      if(first === null) first = c;
+    });
+    if(sel.options.length === 0){
+      sel.innerHTML = '<option value="">(无数值列)</option>';
+    }
+  }
+
+  function renderCpkScope(){
+    var el = $("cpkScope");
+    var opts = [
+      ["all", "全量"],
+      ["filter", "当前筛选（点图上节点）"],
+      ["ok", "仅 OK"],
+      ["ng", "仅 NG"],
+    ];
+    el.innerHTML = "";
+    opts.forEach(function(o){
+      var label = document.createElement("label");
+      label.className = "chk";
+      var input = document.createElement("input");
+      input.type = "radio";
+      input.name = "cpkScope";
+      input.value = o[0];
+      input.checked = (state.cpkScope === o[0]);
+      input.addEventListener("change", function(){
+        state.cpkScope = o[0];
+        renderCpkScope();
+        renderFilterBar();
+        if($("cpkParam").value) calcCpk();
+      });
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(" " + o[1]));
+      el.appendChild(label);
+    });
+  }
+
+  function renderFilterBar(){
+    var bar = $("cpkFilterBar");
+    if(state.filter && state.cpkScope === "filter"){
+      bar.style.display = "";
+      bar.innerHTML =
+        '<span class="chip sel">' + esc(state.filter.col) + ' = ' + esc(state.filter.value) + '</span>' +
+        '<button class="sec" style="padding:3px 12px;font-size:12px;margin:0" id="btnClearFilter">✕ 清除筛选</button>';
+      $("btnClearFilter").addEventListener("click", function(){
+        state.filter = null;
+        state.cpkScope = "all";
+        renderCpkScope();
+        renderFilterBar();
+        if($("cpkParam").value) calcCpk();
+      });
+    } else {
+      bar.style.display = "none";
+      bar.innerHTML = "";
+    }
+  }
+
+  // 点击节点后：按层类型把节点值还原成可匹配的数据子集
+  function applyFilter(rows, col, value, layerIdx){
+    if(layerIdx === 0){
+      // 源层：节点值是完整原始值（如完整 FlowCode）
+      return rows.filter(function(r){ return String(r[col]) === String(value); });
+    }
+    // 参数层：对每行做同样的分箱/合并后匹配
+    var bins = parseInt($("selBins").value, 10) || 5;
+    var colVals = rows.map(function(r){
+      return (r[col] === null || r[col] === undefined) ? "" : r[col];
+    });
+    var prepared = SankeyCore.prepareLayer(colVals, bins, 30);
+    var out = [];
+    for(var i = 0; i < rows.length; i++){
+      if(String(prepared[i]) === String(value)) out.push(rows[i]);
+    }
+    return out;
+  }
+
+  function getScopeRows(){
+    var rows = state.rows;
+    if(state.cpkScope === "filter" && state.filter){
+      return applyFilter(rows, state.filter.col, state.filter.value, state.filter.layerIdx);
+    }
+    if(state.cpkScope === "ok" || state.cpkScope === "ng"){
+      var resCol = resultCol();
+      var ngSet = {};
+      $("ngList").querySelectorAll("input[type=checkbox]").forEach(function(b){
+        if(b.checked) ngSet[String(b.value).trim().toUpperCase()] = true;
+      });
+      return rows.filter(function(r){
+        var key = String(r[resCol] || "").trim().toUpperCase();
+        var isNg = !!ngSet[key];
+        return state.cpkScope === "ng" ? isNg : !isNg;
+      });
+    }
+    return rows;
+  }
+
+  function numericValues(rows, col){
+    var out = [];
+    rows.forEach(function(r){
+      var v = parseFloat(String(r[col]).replace(/,/g, ""));
+      if(isFinite(v)) out.push(v);
+    });
+    return out;
+  }
+
+  function fmt(x, d){
+    if(x === null || x === undefined || !isFinite(x)) return "—";
+    return Number(x).toFixed(d === undefined ? 4 : d);
+  }
+
+  function calcCpk(){
+    var param = $("cpkParam").value;
+    if(!param || !state.header.length){ return; }
+    var lslRaw = $("cpkLsl").value.trim();
+    var uslRaw = $("cpkUsl").value.trim();
+
+    var allVals = numericValues(state.rows, param);
+    if(allVals.length < 2){ $("cpkResult").innerHTML = '<div class="empty-tip">该参数有效数值不足 2 个，无法计算 CPK。</div>'; return; }
+
+    // 规格限: 用户未填 → 用全量 μ±3σ 占位
+    var base = SankeyCore.calcCpK(allVals, null, null);
+    var lsl = lslRaw !== "" ? parseFloat(lslRaw) : (base.mean - 3 * base.sd);
+    var usl = uslRaw !== "" ? parseFloat(uslRaw) : (base.mean + 3 * base.sd);
+    var lslGiven = lslRaw !== "", uslGiven = uslRaw !== "";
+
+    var curVals = numericValues(getScopeRows(), param);
+    var okVals = numericValues(getOkRows(), param);
+    var ngVals = numericValues(getNgRows(), param);
+
+    var cur = SankeyCore.calcCpK(curVals, lsl, usl);
+    var all = SankeyCore.calcCpK(allVals, lsl, usl);
+    var ok = SankeyCore.calcCpK(okVals, lsl, usl);
+    var ng = SankeyCore.calcCpK(ngVals, lsl, usl);
+
+    renderCpkResult(cur, all, ok, ng, lsl, usl, param, lslGiven, uslGiven, curVals);
+  }
+
+  function getOkRows(){
+    var resCol = resultCol();
+    var ngSet = {};
+    $("ngList").querySelectorAll("input[type=checkbox]").forEach(function(b){
+      if(b.checked) ngSet[String(b.value).trim().toUpperCase()] = true;
+    });
+    return state.rows.filter(function(r){
+      var key = String(r[resCol] || "").trim().toUpperCase();
+      return !ngSet[key];
+    });
+  }
+  function getNgRows(){
+    var resCol = resultCol();
+    var ngSet = {};
+    $("ngList").querySelectorAll("input[type=checkbox]").forEach(function(b){
+      if(b.checked) ngSet[String(b.value).trim().toUpperCase()] = true;
+    });
+    return state.rows.filter(function(r){
+      var key = String(r[resCol] || "").trim().toUpperCase();
+      return ngSet[key];
+    });
+  }
+
+  function renderCpkResult(cur, all, ok, ng, lsl, usl, param, lslGiven, uslGiven, curVals){
+    var el = $("cpkResult");
+    var v = SankeyCore.verdictForCpk(cur.cpk);
+    var specNote = (!lslGiven || !uslGiven)
+      ? '<div class="hint" style="color:var(--mar)">⚠ 规格限为试算占位值（μ±3σ），请填写真实 LSL / USL 后再判定。</div>'
+      : "";
+
+    var verdictText =
+      (v.level === "A") ? "过程能力优秀，波动小、余量大。该子集参数不是 NG 根因。" :
+      (v.level === "B") ? "过程能力合格。若该子集 NG 仍偏高，说明问题可能另有其因，建议查批次/时段。" :
+      (v.level === "C") ? "过程能力边缘，存在超规风险 —— 与桑基图红色路径相互印证，值得重点排查该参数。" :
+      "过程能力不足，超规风险高 —— 与桑基图红色路径一致，该参数很可能是系统性根因。";
+
+    var cards = [
+      ["样本数 n", cur.n, 0],
+      ["均值 μ", cur.mean, 4],
+      ["标准差 σ", cur.sd, 5],
+      ["Cp", cur.cp, 3],
+      ["Cpk", cur.cpk, 3],
+    ];
+
+    var html = '';
+    html += '<div class="verdict" style="background:'+v.color+'14;border-color:'+v.color+'55;color:'+v.color+'">';
+    html += '<span class="badge" style="background:'+v.color+'">'+v.level+' 级</span>';
+    html += '当前范围「'+scopeLabel()+'」· '+esc(param)+' 的 Cpk = <b>'+fmt(cur.cpk,3)+'</b>（'+v.text+'）';
+    html += '</div>';
+    html += '<div class="hint" style="margin-top:2px">'+verdictText+'</div>';
+
+    html += '<div class="metrics">';
+    cards.forEach(function(c){
+      html += '<div class="metric"><div class="k">'+c[0]+'</div><div class="v">'+fmt(c[1], c[2])+'</div></div>';
+    });
+    html += '<div class="metric"><div class="k">LSL</div><div class="v">'+fmt(lsl,4)+'</div></div>';
+    html += '<div class="metric"><div class="k">USL</div><div class="v">'+fmt(usl,4)+'</div></div>';
+    html += '</div>';
+    html += specNote;
+
+    html += '<div class="section-title">分组能力对比（同一规格限下）</div>';
+    html += '<div class="scroll"><table class="cmp-table"><thead><tr><th>数据范围</th><th>n</th><th>μ</th><th>σ</th><th>Cp</th><th>Cpk</th><th>判定</th></tr></thead><tbody>';
+    function cmpRow(label, s, isCur){
+      var vv = SankeyCore.verdictForCpk(s.cpk);
+      return '<tr'+(isCur?' style="background:#eaf3fb"':'')+'><td><b>'+label+'</b>'+(isCur?' 🎯':'')+'</td>'+
+        '<td>'+fmt(s.n,0)+'</td><td>'+fmt(s.mean,4)+'</td><td>'+fmt(s.sd,5)+'</td>'+
+        '<td>'+fmt(s.cp,3)+'</td><td><b>'+fmt(s.cpk,3)+'</b></td>'+
+        '<td><span style="color:'+vv.color+'">'+vv.level+' · '+vv.text+'</span></td></tr>';
+    }
+    html += cmpRow("全量", all, false);
+    html += cmpRow(scopeLabel(), cur, true);
+    html += cmpRow("仅 OK", ok, false);
+    html += cmpRow("仅 NG", ng, false);
+    html += '</tbody></table></div>';
+
+    html += '<div class="section-title">样本分布（直方图 + 正态拟合）</div>';
+    html += '<div id="cpkChart" class="cpk-chart"></div>';
+
+    html += '<div class="hint" style="margin-top:8px">' +
+      '📌 联合判定：若「当前筛选」Cpk 明显低于「全量」且为 C/D 级，说明红色路径的参数确实偏移/发散，是系统性根因；' +
+      '若 Cpk 正常但 NG 率高，说明参数没问题，NG 另有其因（查批次/时段/操作员）。</div>';
+
+    el.innerHTML = html;
+
+    // 画直方图
+    var chartDiv = document.getElementById("cpkChart");
+    if(chartDiv && typeof Plotly !== "undefined" && curVals.length >= 2){
+      renderCpkHistogram(chartDiv, curVals, cur.mean, cur.sd, lsl, usl);
+    } else if(chartDiv){
+      chartDiv.innerHTML = '<div class="empty-tip">数据不足，无法画直方图</div>';
+    }
+  }
+
+  function renderCpkHistogram(div, values, mean, sd, lsl, usl){
+    var lo = mean - 4 * sd, hi = mean + 4 * sd;
+    if(!(hi > lo)) { hi = mean + sd; lo = mean - sd; }
+    var xs = [], ys = [];
+    for(var i = 0; i <= 120; i++){
+      var x = lo + (hi - lo) * i / 120;
+      xs.push(Number(x.toFixed(6)));
+      ys.push(Number((1 / (sd * Math.sqrt(2 * Math.PI)) * Math.exp(-((x - mean) * (x - mean)) / (2 * sd * sd))).toFixed(7)));
+    }
+    var traces = [
+      { type: "histogram", x: values, name: "样本分布", opacity: 0.55,
+        marker: { color: "#2f6db5", line: { width: 1, color: "#fff" } } },
+      { type: "scatter", mode: "lines", x: xs, y: ys, name: "正态拟合",
+        line: { color: "#e4572e", width: 2 } },
+    ];
+    var shapes = [];
+    if(lsl !== null && lsl !== undefined && isFinite(lsl))
+      shapes.push({ type: "line", x0: lsl, x1: lsl, yref: "paper", y0: 0, y1: 1,
+        line: { color: "#2e8b57", dash: "dash", width: 1.5 } });
+    if(usl !== null && usl !== undefined && isFinite(usl))
+      shapes.push({ type: "line", x0: usl, x1: usl, yref: "paper", y0: 0, y1: 1,
+        line: { color: "#d9822b", dash: "dash", width: 1.5 } });
+    Plotly.newPlot(div, traces, {
+      height: 260,
+      margin: { l: 55, r: 12, t: 28, b: 35 },
+      font: { family: "Microsoft YaHei", size: 11 },
+      barmode: "overlay",
+      shapes: shapes,
+      showlegend: true,
+      legend: { orientation: "h", x: 0, y: 1.15 },
+      paper_bgcolor: "#fff", plot_bgcolor: "#fff",
+    }, { displaylogo: false, responsive: true });
+  }
 
   // ---------- 事件绑定 ----------
   function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
@@ -488,9 +857,12 @@
   $("btnClear").addEventListener("click", function(){
     $("dataArea").value = "";
     state.header = []; state.rows = [];
+    state.filter = null; state.cpkScope = "all"; state.cpkResult = null;
     $("panelSel").style.display = "none";
     $("chartArea").innerHTML = '<div class="empty-tip">已清空。加载新数据后重新选择。</div>';
     $("statLine").innerHTML = "";
+    $("cpkResult").innerHTML = "";
+    $("cpkFilterBar").style.display = "none";
     setInfo("已清空");
   });
 

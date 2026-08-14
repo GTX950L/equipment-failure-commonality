@@ -176,6 +176,41 @@ python src/sankey_analysis.py --csv data/your_data.csv --out-html examples/your.
 
 ---
 
+## 联合分析：FACA 共性 + CPK 能力
+
+Web 版内置了 **CPK 过程能力分析**面板（一键闭环），回答"红色路径的参数到底是不是根因"：
+
+1. 出图后，**点击图上任意节点**（红色型号 / 参数区间 / NG 结果层）→ 自动筛选出该子集
+2. 下方 CPK 面板弹出**对比表**：全量 / 当前筛选 / 仅 OK / 仅 NG 的 Cpk 一目了然
+3. 配合规格限 LSL / USL，判断子集过程能力是否真正不足
+
+判定逻辑（与 [cpk_calculator.html](https://github.com/GTX950L/cpk-jmp-studio) 的 A/B/C/D 一致）：
+
+| Cpk | 等级 | 含义 |
+|-----|------|------|
+| ≥ 1.67 | A · 优秀 | 过程能力富足 |
+| ≥ 1.33 | B · 合格 | 满足工业要求 |
+| ≥ 1.00 | C · 边缘 | 存在超规风险 |
+| < 1.00 | D · 不足 | **超规风险高，很可能是系统性根因** |
+
+**典型判读**：
+- 当前筛选子集 Cpk **D 级** ←→ 桑基图红色 → 红色路径参数确实是根因（调工艺）
+- 当前筛选子集 Cpk **A/B 级** ←→ 桑基图红色 → 参数没问题，NG 另有其因（查批次/操作员/时段）
+- Cpk 接近 Cpk 但 Cp 明显低 → 波动大（一致性差）→ 设备精度 / 材料批次问题
+
+CPK 面板的「仅 OK / 仅 NG」按钮是个 1 键验证：
+
+```
+"仅 NG" 子集 Cpk 低 + "仅 OK" 子集 Cpk 高
+   →  该参数确实把 NG 样本拉偏了 —— 直接调工艺参数
+```
+
+规格限 LSL / USL 留空时自动用全量 μ±3σ 占位（仅试算），正式判级请填图纸/客户标准的真实值。
+
+> Python 版同样支持 CPK 联用：`from src.sankey_analysis import build_sankey` 取 red flow 节点 → 筛 sub-DataFrame → 算 Cpk / Cp / 样本标准差。
+
+---
+
 ## 适用场景
 
 这个模板适合所有"**沿工序链路的 NG / OK 共性分析**"，举几个例子：
@@ -219,9 +254,9 @@ python src/sankey_analysis.py --csv data/your_data.csv --out-html examples/your.
 - [x] 桑基图核心 (任意参数列组合, 不再写死 5 层)
 - [x] Web 离线版 (双击即用, 自动识别表头 + 打钩选列)
 - [x] 本地 Plotly.js / SheetJS (完全离线可用)
-- [ ] 支持中文 / 英文图例切换
-- [ ] 增加"指定 NG 子集分析"模式 (只看 NG 样本的路径)
-- [ ] 深色 / 浅色主题切换
+- [x] FACA + CPK 联合分析面板 (节点点击 → 子集筛选 → Cpk 对比)
+- [ ] 暗色 / 浅色主题切换
+- [ ] 支持更多结果值（A/B/C 等级、不良原因分类等）
 
 ---
 
