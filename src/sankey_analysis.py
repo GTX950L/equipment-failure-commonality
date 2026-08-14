@@ -128,6 +128,15 @@ def _color_for_link(color_axis: float) -> str:
     return f"rgba({r},{g},{b},0.4)"
 
 
+def _color_for_node_binary(color_axis: float) -> str:
+    """JMP 二色: 以基线 NG 占比为界, 上红下蓝。"""
+    return "rgb(221,63,63)" if color_axis >= 0 else "rgb(58,110,205)"
+
+
+def _color_for_link_binary(color_axis: float) -> str:
+    return "rgba(221,63,63,0.5)" if color_axis >= 0 else "rgba(58,110,205,0.5)"
+
+
 # ---------------------------------------------------------------------------
 # 主函数：构造桑基图 (通用版)
 # ---------------------------------------------------------------------------
@@ -140,6 +149,7 @@ def build_sankey(
     continuous_bins: int = 5,
     result_positive: str = "NG",
     max_cardinality: int = 30,
+    color_mode: str = "gradient",
 ) -> go.Figure:
     """
     构造桑基图。
@@ -228,7 +238,12 @@ def build_sankey(
     node_color_axis: dict[str, float] = {
         n: _ng_ratio_to_color_axis(r, baseline_ng) for n, r in node_ng_ratio.items()
     }
-    node_colors = [_color_for_node(node_color_axis[n]) for n in all_nodes]
+    node_colors = [
+        (_color_for_node_binary if color_mode == "binary" else _color_for_node)(
+            node_color_axis[n]
+        )
+        for n in all_nodes
+    ]
 
     # --- 5. 构造链路 (相邻层两两统计) ---
     links_src: list[int] = []
@@ -250,7 +265,11 @@ def build_sankey(
             links_src.append(src)
             links_tgt.append(tgt)
             links_val.append(cnt)
-            links_color.append(_color_for_link(left_axis.get(left, 0.0)))
+            links_color.append(
+                (_color_for_link_binary if color_mode == "binary" else _color_for_link)(
+                    left_axis.get(left, 0.0)
+                )
+            )
 
     for i in range(len(layer_cols)):
         left_col, _ = layer_cols[i]
@@ -314,6 +333,9 @@ def main() -> None:
     parser.add_argument(
         "--out-png", default=None, help="(可选) 同时导出 PNG, 需要 kaleido"
     )
+    parser.add_argument(
+        "--out-svg", default=None, help="(可选) 同时导出 SVG 矢量图, 需要 kaleido"
+    )
     parser.add_argument("--source-col", default="FlowCode", help="源列名")
     parser.add_argument(
         "--param-cols",
@@ -330,6 +352,10 @@ def main() -> None:
         help="源列只保留出现次数最多的几个, 其余合并为'其他'",
     )
     parser.add_argument("--bins", type=int, default=5, help="连续值列的分箱数")
+    parser.add_argument(
+        "--color-mode", default="gradient", choices=["gradient", "binary"],
+        help="gradient=科学渐变(红灰蓝) / binary=JMP二色(红蓝)",
+    )
     args = parser.parse_args()
 
     df = pd.read_csv(args.csv)
@@ -344,6 +370,7 @@ def main() -> None:
         result_positive=args.result_positive,
         top_n=args.top_n,
         continuous_bins=args.bins,
+        color_mode=args.color_mode,
     )
 
     out_html = Path(args.out_html)
@@ -357,6 +384,14 @@ def main() -> None:
             print(f"已生成 PNG  -> {args.out_png}")
         except Exception as exc:  # noqa: BLE001
             print(f"[警告] PNG 导出失败: {exc}")
+            print("        请确认已安装 kaleido: pip install kaleido")
+
+    if args.out_svg:
+        try:
+            fig.write_image(args.out_svg)
+            print(f"已生成 SVG  -> {args.out_svg}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[警告] SVG 导出失败: {exc}")
             print("        请确认已安装 kaleido: pip install kaleido")
 
 

@@ -232,6 +232,15 @@
     return "rgba(" + c[0] + "," + c[1] + "," + c[2] + ",0.4)";
   }
 
+  // ---------- JMP 风格二色模式: 以基线 NG 占比为界, 上红下蓝 ----------
+  function colorForNodeBinary(axis) {
+    return axis >= 0 ? "rgb(221,63,63)" : "rgb(58,110,205)";
+  }
+
+  function colorForLinkBinary(axis) {
+    return axis >= 0 ? "rgba(221,63,63,0.5)" : "rgba(58,110,205,0.5)";
+  }
+
   // ---------------------------------------------------------------------
   // CPK 过程能力计算
   // ---------------------------------------------------------------------
@@ -311,6 +320,7 @@
     const topN = opts.topN || 6;
     const bins = opts.bins || 5;
     const maxCardinality = opts.maxCardinality || 30;
+    const colorMode = opts.colorMode === "binary" ? "binary" : "gradient";
     const LABEL_NG = (opts.labels && opts.labels.ng) || "NG";
     const LABEL_OK = (opts.labels && opts.labels.ok) || "OK";
 
@@ -415,7 +425,9 @@
         }
       });
     });
-    const nodeColors = allNodes.map(function (n) { return colorForNode(nodeAxis[n]); });
+    const nodeColors = allNodes.map(function (n) {
+      return colorMode === "binary" ? colorForNodeBinary(nodeAxis[n]) : colorForNode(nodeAxis[n]);
+    });
 
     // 6. 链路：相邻层两两计数
     const srcL = [], tgtL = [], valL = [], colorL = [];
@@ -436,7 +448,8 @@
         srcL.push(nodeIndex[l]);
         tgtL.push(nodeIndex[rt]);
         valL.push(cnt);
-        colorL.push(colorForLink(leftAxis[l] === undefined ? 0 : leftAxis[l]));
+        const axis = leftAxis[l] === undefined ? 0 : leftAxis[l];
+        colorL.push(colorMode === "binary" ? colorForLinkBinary(axis) : colorForLink(axis));
       });
     });
 
@@ -497,7 +510,93 @@
       links: { source: srcL, target: tgtL, value: valL, color: colorL },
       title: title,
       baselineNg: baselineNg,
+      // 每层信息: {name: 字段名, indices: 该层节点索引} —— 用于 X 轴层标题
+      layers: layerNodes.map(function (layer, li) {
+        return {
+          name: layerCols[li],
+          indices: layer.map(function (n) { return nodeIndex[n]; }),
+        };
+      }),
     };
+  }
+
+  // ---------------------------------------------------------------------
+  // 重要列自动识别: 信息增益（相对 NG/OK 结果）
+  // ---------------------------------------------------------------------
+  function entropy(p) {
+    if (!(p > 0) || p >= 1) return 0;
+    return -p * Math.log2(p) - (1 - p) * Math.log2(1 - p);
+  }
+
+  function scoreColumns(data, header, sourceCol, resultCol, ngValues, bins) {
+    /**
+     * 评估每个候选参数列"区分 NG/OK"的信息增益(0~1)。
+     * 返回 { 列名: 分数 }, 排除规则命中的列得 -1。
+     * - 数值列: 分箱后按组计算 IG
+     * - 离散列: 高基数(唯一值过多)排除, 否则按类别计算 IG
+     * - 时间/编号/设备等元数据列: 按列名启发式排除
+     */
+    bins = bins || 5;
+    const ngSet = {};
+    (ngValues || []).forEach(function (v) {
+      ngSet[String(v).trim().toUpperCase()] = true;
+    });
+    const n = data.length;
+    if (!n) return {};
+    const isNg = data.map(function (r) {
+      const key = String(r[resultCol] === null || r[resultCol] === undefined ? "" : r[resultCol]).trim().toUpperCase();
+      return ngSet[key] ? 1 : 0;
+    });
+    const ngCount = isNg.reduce(function (a, b) { return a + b; }, 0);
+    const baseP = ngCount / n;
+    const baseEntropy = entropy(baseP);
+    if (!(baseEntropy > 0)) {
+      // 结果没有区分度（全 NG 或全 OK），无法用 IG，全部给 0
+      const flat = {};
+      header.forEach(function (c) { flat[c] = 0; });
+      return flat;
+    }
+
+    // 元数据列名启发式排除
+    const excludeKw = [
+      "时间", "时刻", "日期", "time", "date", "cdate", "datetime",
+      "编号", "码", "单据", "工单", "批次", "批号", "id", "no", "pcd",
+      "user", "name", "设备", "车间", "线别", "部门", "站点", "通道",
+      "异常", "错误", "code", "retest", "rework", "复测", "返工", "操作员",
+    ];
+    const scores = {};
+    header.forEach(function (col) {
+      if (col === sourceCol || col === resultCol) { scores[col] = -1; return; }
+      const low = String(col).toLowerCase();
+      if (excludeKw.some(function (k) { return low.indexOf(k) >= 0; })) { scores[col] = -1; return; }
+
+      const vals = data.map(function (r) {
+        return r[col] === null || r[col] === undefined ? "" : r[col];
+      });
+      let labels;
+      if (isNumericColumn(vals)) {
+        labels = binNumeric(vals, bins);
+      } else {
+        const uniq = new Set(vals.map(String));
+        // 离散列唯一值太多 → 每值一例, 无共性意义, 排除
+        if (uniq.size > 40 || uniq.size > n * 0.3) { scores[col] = -1; return; }
+        labels = collapseLowCardinality(vals, 30);
+      }
+      // 信息增益
+      const groups = {};
+      labels.forEach(function (lab, i) {
+        const g = groups[lab] || (groups[lab] = { n: 0, ng: 0 });
+        g.n++;
+        if (isNg[i]) g.ng++;
+      });
+      let cond = 0;
+      Object.keys(groups).forEach(function (k) {
+        const g = groups[k];
+        if (g.n > 0) cond += (g.n / n) * entropy(g.ng / g.n);
+      });
+      scores[col] = baseEntropy > 0 ? (baseEntropy - cond) / baseEntropy : 0;
+    });
+    return scores;
   }
 
   // ---------------------------------------------------------------------
@@ -511,8 +610,12 @@
     collapseLowCardinality: collapseLowCardinality,
     prepareLayer: prepareLayer,
     buildSankey: buildSankey,
+    scoreColumns: scoreColumns,
+    entropy: entropy,
     ngRatioToColorAxis: ngRatioToColorAxis,
     mixColor: mixColor,
+    colorForNodeBinary: colorForNodeBinary,
+    colorForLinkBinary: colorForLinkBinary,
     shortenLabel: shortenLabel,
     meanStd: meanStd,
     calcCpK: calcCpK,

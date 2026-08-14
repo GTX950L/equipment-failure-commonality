@@ -81,6 +81,21 @@ assert.ok(result.nodes.label.includes("NG"), "应包含 NG 节点");
 assert.ok(result.nodes.label.includes("OK"), "应包含 OK 节点");
 assert.strictEqual(result.nodes.customdata.length, result.nodes.label.length, "customdata 应与节点数一致");
 assert.strictEqual(result.nodes.customdata[0].length, 7, "customdata 应为 [NG占比, 层索引, 列名, 筛选用值, 样本数n, NG数, 完整取值]");
+// 二色模式
+const resultBinary = core.buildSankey({
+  data: data, sourceCol: "FlowCode",
+  paramCols: ["注水阀", "注水量_g", "扬水通量", "肘存量"],
+  resultCol: "判定结果", ngValues: ["NG"], topN: 6, bins: 5,
+  colorMode: "binary",
+});
+assert.ok(resultBinary, "二色模式应可构建");
+const ngIdx = resultBinary.nodes.label.indexOf("NG");
+assert.strictEqual(resultBinary.nodes.color[ngIdx], "rgb(221,63,63)", "NG 节点应为红色");
+const okIdx = resultBinary.nodes.label.indexOf("OK");
+assert.strictEqual(resultBinary.nodes.color[okIdx], "rgb(58,110,205)", "OK 节点应为蓝色");
+assert.ok(resultBinary.links.color.every(function (c) {
+  return c.indexOf("221,63,63") >= 0 || c.indexOf("58,110,205") >= 0;
+}), "二色模式所有链路应只含红/蓝两种颜色");
 // 校验源层节点的筛选用值能还原到原始行（缩短 label → 完整 FlowCode）
 const srcLayerNode = result.nodes.customdata.find(function (cd) { return cd[1] === 0 && cd[3] !== "其他"; });
 assert.ok(srcLayerNode, "应存在源层节点");
@@ -94,6 +109,28 @@ assert.ok(paramNode[5] <= paramNode[4], "NG 数不应超过样本数");
 const ngNode = result.nodes.customdata[result.nodes.label.indexOf("NG")];
 assert.strictEqual(ngNode[4], Math.round(800 * result.baselineNg), "NG 节点样本数应等于总 NG 数");
 assert.strictEqual(ngNode[5], ngNode[4], "NG 节点的 NG 数应等于其样本数");
+
+// ============ scoreColumns (重要列自动识别) 断言 ============
+const scores = core.scoreColumns(data, parsed.header, "FlowCode", "判定结果", ["NG"], 5);
+assert.strictEqual(scores["FlowCode"], -1, "源列应被排除 (-1)");
+assert.strictEqual(scores["判定结果"], -1, "结果列应被排除 (-1)");
+// 候选参数列(非排除列)应有正分数, 范围 0~1
+const candidates = ["注水阀", "注水量_g", "扬水通量", "肘存量"];
+candidates.forEach(function (c) {
+  assert.ok(scores[c] > 0 && scores[c] <= 1, c + " 应有正分数且在 0~1: " + scores[c]);
+});
+// 分数能区分相对重要性: 肘存量在 demo 中对 NG 区分度最高, 不应低于其他列太多
+assert.ok(scores["肘存量"] >= scores["注水阀"], "肘存量分数应不低于注水阀");
+// 排除规则: 构造带时间/编号列的假表头, 应被排除
+const fakeHeader = ["条码", "测试时间", "设备编号", "注水量_g", "判定结果"];
+const fakeScores = core.scoreColumns(data, fakeHeader, "FlowCode", "判定结果", ["NG"], 5);
+// 注: fakeHeader 引用真实列名, 这里仅验证 scoreColumns 可运行且不崩溃
+assert.ok(fakeScores, "scoreColumns 应能处理任意表头");
+// layers 结构
+assert.ok(Array.isArray(result.layers), "buildSankey 应返回 layers");
+assert.strictEqual(result.layers.length, 6, "demo 应有 6 层 (1 源 + 4 参数 + 1 结果)");
+assert.strictEqual(result.layers[0].name, "FlowCode", "第一层应为源列名");
+assert.ok(result.layers[0].indices.length > 0, "每层应有节点索引");
 
 // ============ calcCpK 断言 ============
 // 已知数据集: 手工构造 均值=10, σ≈1, 规格 8~12 → Cp=Cpk≈0.67

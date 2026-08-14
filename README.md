@@ -21,9 +21,14 @@
 
 1. 把包含**各种表头**的数据表（CSV / Excel）拖进页面，或直接粘贴
 2. 自动识别表头，展示每列的**类型 / 唯一值数 / 样例值**
-3. **打钩选择**：源列（条母/型号）、工序参数列（可多选）、结果列（NG/OK 判定）
-4. 选择哪些值算「不良」
-5. 一键出图 + CPK 联合分析
+3. **全自动识别，几乎不用点**：
+   - 源列（料号 / 条码 / 型号）与结果列（判定）自动推荐
+   - 「不良」值自动识别（NG / FAIL / 不良…，多值取少数派）
+   - 工序参数列按**信息增益**（区分 NG/OK 的能力）自动勾选，其余默认不打勾
+4. 一键出图 + CPK 联合分析
+
+**出图能力**：每层标注字段名（X 轴层标题）、节点 hover 显示 NG 占比/样本数/完整取值、
+配色可切换（科学渐变 / JMP 红蓝二色）、导出 PNG / SVG 矢量图、点击节点路径高亮 + 筛选 + CPK。
 
 > 数据始终只在你的**浏览器内**处理，不会上传到任何服务器。
 
@@ -89,12 +94,14 @@ python src/sankey_analysis.py
 命令行参数（列名随意指定，不再写死）：
 
 ```bash
-# 指定源列 / 参数列 / 结果列，Top-8，分 6 箱，同时导出 PNG
+# 指定源列 / 参数列 / 结果列，Top-8，分 6 箱，JMP 二色配色，同时导出 PNG + SVG 矢量图
 python src/sankey_analysis.py --source-col FlowCode \
     --param-cols 注水阀 注水量_g 扬水通量 肘存量 \
     --result-col 判定结果 --top-n 8 --bins 6 \
-    --out-png docs/sankey_example.png
+    --color-mode binary \
+    --out-png docs/sankey_example.png --out-svg docs/sankey_example.svg
 ```
+> `--color-mode`：`gradient`（科学渐变红灰蓝，默认）/ `binary`（JMP 红蓝二色）。PNG / SVG 导出需安装 `kaleido`。
 
 ---
 
