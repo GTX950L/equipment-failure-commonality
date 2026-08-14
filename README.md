@@ -3,34 +3,36 @@
 > 一个面向制造业数据处理场景的"桑基图(Sankey)"可视化工具。
 > 帮你一眼看清**设备问题集中在哪个工艺参数、哪个组合最容易 NG**。
 
+<div align="center">
+
+[![在线使用](https://img.shields.io/badge/%F0%9F%9A%80%20%E5%9C%A8%E7%BA%BF%E4%BD%BF%E7%94%A8-%E7%82%B9%E5%87%BB%E6%89%93%E5%BC%80-2f6db5?style=for-the-badge&logo=github&logoColor=white)](https://gtx950l.github.io/equipment-failure-commonality/)
+
+</div>
+
 ![示例桑基图](docs/sankey_web_example.png)
 
 ---
 
-## 🚀 在线体验（GitHub Pages）
+## 🚀 在线使用（推荐）
 
-**不用安装、不用下载，浏览器直接打开：**
+**浏览器直接打开，不用安装、不用下载：**
 
-👉 **[点击打开 Web 工具（sankey.html）](https://gtx950l.github.io/equipment-failure-commonality/sankey.html)**
-
-支持拖入 CSV / Excel → 自动识别表头 → 打钩选列 → 出图 + CPK 联合分析。
-（首次打开会等 GitHub Pages 预热几秒；数据始终只在你的浏览器内处理。）
-
-想离线用？把仓库里的 `web/` 文件夹拷走，双击 `sankey.html` 即可。
-
----
-
-## 快速开始（推荐：Web 离线版，无需安装）
-
-**整个 `web/` 文件夹拷到任何电脑（含内网），双击 `web/sankey.html` 即可使用** —— 无需安装任何软件、无需联网、数据不出本机。
+👉 **[https://gtx950l.github.io/equipment-failure-commonality/](https://gtx950l.github.io/equipment-failure-commonality/)**
 
 1. 把包含**各种表头**的数据表（CSV / Excel）拖进页面，或直接粘贴
 2. 自动识别表头，展示每列的**类型 / 唯一值数 / 样例值**
 3. **打钩选择**：源列（条母/型号）、工序参数列（可多选）、结果列（NG/OK 判定）
 4. 选择哪些值算「不良」
-5. 一键出图，支持下载 PNG
+5. 一键出图 + CPK 联合分析
 
-> 网页版用**本地** Plotly.js / SheetJS 渲染，完整离线；前提是保持 `web/` 目录结构完整（`sankey.html` 和 `lib/` 子目录必须在同一文件夹里，不能只拷一个 HTML 文件）。
+> 数据始终只在你的**浏览器内**处理，不会上传到任何服务器。
+
+---
+
+## 离线使用（可选）
+
+没有网络时，把仓库里的 `web/` 文件夹拷走，双击 `sankey.html`（或 `index.html`）即可——功能与在线版完全一致。
+前提是保持 `web/` 目录结构完整（`sankey.html` 和 `lib/` 子目录必须在同一文件夹里，不能只拷一个 HTML 文件）。
 
 ---
 
@@ -108,7 +110,8 @@ equipment-failure-commonality/
 ├── src/
 │   ├── generate_demo_data.py         # 生成模拟数据
 │   └── sankey_analysis.py            # 核心: 任意列组合 → 桑基图
-├── web/                              # Web 离线版 (双击即用, 推荐)
+├── web/                              # Web 版 (在线/离线同一套文件, 双击即用)
+│   ├── index.html                    #   入口 (自动跳转到 sankey.html)
 │   ├── sankey.html                   #   主界面
 │   ├── sankey_core.js                #   核心计算逻辑 (JS)
 │   ├── demo_data.js                  #   内置示例数据
