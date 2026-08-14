@@ -80,12 +80,20 @@ assert.strictEqual(firstLayer, 800, "第一层链路应为 800");
 assert.ok(result.nodes.label.includes("NG"), "应包含 NG 节点");
 assert.ok(result.nodes.label.includes("OK"), "应包含 OK 节点");
 assert.strictEqual(result.nodes.customdata.length, result.nodes.label.length, "customdata 应与节点数一致");
-assert.strictEqual(result.nodes.customdata[0].length, 4, "customdata 应为 [NG占比, 层索引, 列名, 筛选用原始值]");
+assert.strictEqual(result.nodes.customdata[0].length, 7, "customdata 应为 [NG占比, 层索引, 列名, 筛选用值, 样本数n, NG数, 完整取值]");
 // 校验源层节点的筛选用值能还原到原始行（缩短 label → 完整 FlowCode）
 const srcLayerNode = result.nodes.customdata.find(function (cd) { return cd[1] === 0 && cd[3] !== "其他"; });
 assert.ok(srcLayerNode, "应存在源层节点");
 const rawValue = srcLayerNode[3];
 assert.ok(data.some(function (r) { return r.FlowCode === rawValue; }), "源层筛选用值应能在原始数据中匹配到行");
+// 校验样本数与 NG 数: 参数层节点 n>0 且 ng<=n
+const paramNode = result.nodes.customdata.find(function (cd) { return cd[1] === 1; });
+assert.ok(paramNode[4] > 0, "参数层节点样本数应 > 0");
+assert.ok(paramNode[5] <= paramNode[4], "NG 数不应超过样本数");
+// 校验 NG 节点 n = 总 NG 数 (demo 基线 21.5%, 800 条 → 172 NG)
+const ngNode = result.nodes.customdata[result.nodes.label.indexOf("NG")];
+assert.strictEqual(ngNode[4], Math.round(800 * result.baselineNg), "NG 节点样本数应等于总 NG 数");
+assert.strictEqual(ngNode[5], ngNode[4], "NG 节点的 NG 数应等于其样本数");
 
 // ============ calcCpK 断言 ============
 // 已知数据集: 手工构造 均值=10, σ≈1, 规格 8~12 → Cp=Cpk≈0.67

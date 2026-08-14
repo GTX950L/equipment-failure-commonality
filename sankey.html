@@ -86,6 +86,10 @@
   .chip{display:inline-block;background:#eef1f4;color:#32383f;border-radius:20px;padding:3px 12px;font-size:12px;
         margin:2px 5px 2px 0;cursor:pointer;border:1px solid transparent}
   .chip.sel{background:#eaf3fb;border-color:#2f6db5;color:#0969da;font-weight:600}
+  /* 颜色图例 */
+  .colorbar-wrap{margin-top:8px;padding:8px 12px;background:#fff;border:1px solid var(--border);border-radius:8px}
+  .colorbar{height:10px;border-radius:5px;background:linear-gradient(to right,#2f6db5 0%,#8a94a0 50%,#e4572e 100%)}
+  .colorbar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px}
 </style>
 </head>
 <body>
@@ -157,6 +161,10 @@
     <div id="statLine" class="legend"></div>
     <div class="legend" style="margin-top:4px">
       📖 读图方法：<span class="red">红色</span>流从哪一层开始分叉，问题就集中在哪一层 —— 例如某个型号 + 某个档位 + 某个数值区间一路红到 NG。
+    </div>
+    <div class="colorbar-wrap" id="colorbar" style="display:none">
+      <div class="colorbar"></div>
+      <div class="colorbar-label"><span>蓝（合格为主）</span><span>灰（接近整体水平）</span><span>红（NG 集中）</span></div>
     </div>
 
     <!-- ============ CPK 联合分析面板 ============ -->
@@ -472,8 +480,10 @@
         line: { color: "black", width: 0.5 },
         label: result.nodes.label,
         color: result.nodes.color,
-        customdata: result.nodes.customdata, // [NG占比, 层索引, 列名]
-        hovertemplate: "%{label}<br>该值 NG 占比: %{customdata[0]:.1%}<extra></extra>",
+        customdata: result.nodes.customdata, // [NG占比, 层索引, 列名, 筛选用值, n, ng, 完整取值]
+        hovertemplate: "%{label}<br>" +
+          "NG 占比: %{customdata[0]:.1%} · 样本数: %{customdata[4]}（NG %{customdata[5]} 条）<br>" +
+          "完整取值: %{customdata[6]}<extra></extra>",
       },
       link: {
         source: result.links.source,
@@ -495,6 +505,7 @@
     $("chartArea").innerHTML = '<div id="chartBox"></div>';
     Plotly.newPlot("chartBox", data, layout, { responsive: true, displaylogo: false });
     state.cpkResult = result;
+    $("colorbar").style.display = "";
     bindSankeyClick();
 
     // 出图后校验 CPK 筛选是否仍然有效（列被去掉则清掉筛选）
@@ -510,7 +521,7 @@
       "📊 共 " + state.rows.length.toLocaleString() + " 条记录，" +
       "NG 占比 <b>" + (result.baselineNg*100).toFixed(1) + "%</b>，" +
       params.length + " 层工序参数，源列「" + esc(sourceCol()) + "」保留 Top-" + $("selTopN").value +
-      "。<br>💡 点击图上任意节点，可在下方 CPK 面板对该子集做能力分析。";
+      "。<br>💡 点击图上任意节点：该节点路径会<b>高亮</b>，并在下方 CPK 面板自动对该子集做能力分析（支持导出筛选数据）。";
   });
 
   // ---------- 下载 PNG ----------
@@ -548,6 +559,8 @@
       var layerIdx = info[1], col = info[2], val = info[3];
       if(!col || state.header.indexOf(col) < 0) return;
 
+      highlightLinks(p.pointNumber);
+
       if(val === "NG" || val === "OK"){
         // 点击结果层节点 → 只看该结果的子集
         state.filter = null;
@@ -560,6 +573,24 @@
       renderFilterBar();
       if($("cpkParam").value) calcCpk();
     });
+  }
+
+  // ---------- 路径高亮：点击节点后只保留与该节点直接相连的链路颜色，其余变淡 ----------
+  function highlightLinks(nodeIdx){
+    if(!state.cpkResult || typeof Plotly === "undefined") return;
+    var links = state.cpkResult.links;
+    var newColors = links.color.map(function(c, i){
+      var s = links.source[i], t = links.target[i];
+      return (s === nodeIdx || t === nodeIdx) ? c : "rgba(200,203,212,0.08)";
+    });
+    var gd = document.querySelector(".js-plotly-plot");
+    if(gd) Plotly.restyle(gd, { "link.color": [newColors] }, [0]);
+  }
+
+  function clearHighlight(){
+    if(!state.cpkResult || typeof Plotly === "undefined") return;
+    var gd = document.querySelector(".js-plotly-plot");
+    if(gd) Plotly.restyle(gd, { "link.color": [state.cpkResult.links.color.slice()] }, [0]);
   }
 
   function initCpkPanel(){
@@ -645,18 +676,46 @@
       bar.style.display = "";
       bar.innerHTML =
         '<span class="chip sel">' + esc(state.filter.col) + ' = ' + esc(state.filter.value) + '</span>' +
-        '<button class="sec" style="padding:3px 12px;font-size:12px;margin:0" id="btnClearFilter">✕ 清除筛选</button>';
+        '<button class="sec" style="padding:3px 12px;font-size:12px;margin:0" id="btnClearFilter">✕ 清除筛选</button>' +
+        '<button class="sec" style="padding:3px 12px;font-size:12px;margin:0 0 0 8px" id="btnExportFilter">📤 导出筛选数据</button>';
       $("btnClearFilter").addEventListener("click", function(){
         state.filter = null;
         state.cpkScope = "all";
+        clearHighlight();
         renderCpkScope();
         renderFilterBar();
         if($("cpkParam").value) calcCpk();
+      });
+      $("btnExportFilter").addEventListener("click", function(){
+        var rows = getScopeRows();
+        if(!rows.length){ alert("当前筛选没有数据可导出"); return; }
+        exportCsv(rows, "sankey_filter.csv");
       });
       return;
     }
     bar.style.display = "none";
     bar.innerHTML = "";
+  }
+
+  // ---------- 导出 CSV ----------
+  function exportCsv(rows, filename){
+    var header = state.header;
+    var lines = [header.join(",")];
+    rows.forEach(function(r){
+      var cells = header.map(function(c){
+        var v = r[c];
+        if(v === null || v === undefined) return "";
+        v = String(v);
+        return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      });
+      lines.push(cells.join(","));
+    });
+    var blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   // 点击节点后：按层类型把节点值还原成可匹配的数据子集
@@ -840,6 +899,10 @@
       '📌 联合判定：若「当前筛选」Cpk 明显低于「全量」且为 C/D 级，说明红色路径的参数确实偏移/发散，是系统性根因；' +
       '若 Cpk 正常但 NG 率高，说明参数没问题，NG 另有其因（查批次/时段/操作员）。</div>';
 
+    html += '<div class="hint" style="margin-top:4px;color:var(--muted)">' +
+      'ℹ 方法说明：σ 用样本标准差（个体数据近似），Cpk 为常规双侧/单侧定义（Cp=(USL-LSL)/(6σ)）。' +
+      '若样本数太少或数据明显非正态，请谨慎解读 Cpk，优先结合直方图观察。</div>';
+
     el.innerHTML = html;
 
     // 画直方图
@@ -910,6 +973,7 @@
     $("statLine").innerHTML = "";
     $("cpkResult").innerHTML = "";
     $("cpkFilterBar").style.display = "none";
+    $("colorbar").style.display = "none";
     setInfo("已清空");
   });
 
