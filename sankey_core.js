@@ -417,34 +417,33 @@
       if (r.isNG) layerStats[layerStats.length - 1][key].ng++;
     });
 
-    // 5. 染色轴
+    // 5. 染色轴 + 节点索引
+    // 关键: 节点索引用「层索引 + 值」复合键, 避免跨层同 label(如"其他"/"1")被合并成同一节点,
+    //      否则链路会指回自身/前层, 形成环状结构
+    const nodeIndex = {};
+    const allNodes = [];
+    const nodeKeys = [];
     const nodeNgRatio = {};
     const nodeNgCount = {};   // 每节点 NG 样本数
     const nodeNCount = {};    // 每节点样本数
+    const nodeAxis = {};
     layerNodes.forEach(function (layer, li) {
       layer.forEach(function (n) {
+        const key = li + "\u0000" + n;
         const st = layerStats[li][n];
-        nodeNgRatio[n] = st ? st.ratio : 0;
-        nodeNgCount[n] = st ? st.ng : 0;
-        nodeNCount[n] = st ? st.n : 0;
-      });
-    });
-    const nodeAxis = {};
-    Object.keys(nodeNgRatio).forEach(function (n) {
-      nodeAxis[n] = ngRatioToColorAxis(nodeNgRatio[n], baselineNg);
-    });
-    const nodeIndex = {};
-    const allNodes = [];
-    layerNodes.forEach(function (layer) {
-      layer.forEach(function (n) {
-        if (!(n in nodeIndex)) {
-          nodeIndex[n] = allNodes.length;
+        nodeNgRatio[key] = st ? st.ratio : 0;
+        nodeNgCount[key] = st ? st.ng : 0;
+        nodeNCount[key] = st ? st.n : 0;
+        nodeAxis[key] = ngRatioToColorAxis(nodeNgRatio[key], baselineNg);
+        if (!(key in nodeIndex)) {
+          nodeIndex[key] = allNodes.length;
           allNodes.push(n);
+          nodeKeys.push(key);
         }
       });
     });
-    const nodeColors = allNodes.map(function (n) {
-      return colorMode === "binary" ? colorForNodeBinary(nodeAxis[n]) : colorForNode(nodeAxis[n]);
+    const nodeColors = nodeKeys.map(function (k) {
+      return colorMode === "binary" ? colorForNodeBinary(nodeAxis[k]) : colorForNode(nodeAxis[k]);
     });
 
     // 6. 链路：相邻层两两计数
@@ -458,15 +457,14 @@
         const key = l + "\u0000" + rightList[r];
         counts.set(key, (counts.get(key) || 0) + 1);
       });
-      const leftAxis = nodeAxis;
       counts.forEach(function (cnt, key) {
         const idx = key.indexOf("\u0000");
         const l = key.slice(0, idx);
         const rt = key.slice(idx + 1);
-        srcL.push(nodeIndex[l]);
-        tgtL.push(nodeIndex[rt]);
+        srcL.push(nodeIndex[i + "\u0000" + l]);
+        tgtL.push(nodeIndex[(i + 1) + "\u0000" + rt]);
         valL.push(cnt);
-        const axis = leftAxis[l] === undefined ? 0 : leftAxis[l];
+        const axis = nodeAxis[i + "\u0000" + l] === undefined ? 0 : nodeAxis[i + "\u0000" + l];
         colorL.push(colorMode === "binary" ? colorForLinkBinary(axis) : colorForLink(axis));
       });
     });
@@ -493,7 +491,7 @@
 
     layerNodes.forEach(function (layer, li) {
       layer.forEach(function (n) {
-        const idx = nodeIndex[n];
+        const idx = nodeIndex[li + "\u0000" + n];
         if (nodeLayerIdx[idx] === undefined) {
           nodeLayerIdx[idx] = li;
           nodeColName[idx] = layerCols[li];
@@ -510,17 +508,17 @@
       nodes: {
         label: allNodes,
         color: nodeColors,
-        ngRatio: allNodes.map(function (n) { return nodeNgRatio[n]; }),
+        ngRatio: nodeKeys.map(function (k) { return nodeNgRatio[k]; }),
         // 每个节点: [NG占比, 层索引, 列名, 筛选用原始值, 样本数n, NG数, 完整取值]
         // 完整取值: 源层是完整 FlowCode; 其余层同 label
-        customdata: allNodes.map(function (n, i) {
+        customdata: nodeKeys.map(function (k, i) {
           return [
-            nodeNgRatio[n],
+            nodeNgRatio[k],
             nodeLayerIdx[i],
             nodeColName[i],
             nodeFilterValue[i],
-            nodeNCount[n],
-            nodeNgCount[n],
+            nodeNCount[k],
+            nodeNgCount[k],
             nodeFilterValue[i],
           ];
         }),
@@ -532,7 +530,7 @@
       layers: layerNodes.map(function (layer, li) {
         return {
           name: layerCols[li],
-          indices: layer.map(function (n) { return nodeIndex[n]; }),
+          indices: layer.map(function (n) { return nodeIndex[li + "\u0000" + n]; }),
         };
       }),
     };
