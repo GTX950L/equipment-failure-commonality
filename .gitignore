@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 输出产物（运行时再生成）
+examples/*.html
+examples/*.png
+!examples/.gitkeep
+
+# 大数据 / 中间文件
+data/*.csv
+!data/demo_equipment_issues.csv
+*.tmp
