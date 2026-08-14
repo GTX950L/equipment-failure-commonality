@@ -233,6 +233,57 @@
   }
 
   // ---------------------------------------------------------------------
+  // CPK 过程能力计算
+  // ---------------------------------------------------------------------
+  function meanStd(values) {
+    /** values: 数值数组（已过滤 NaN），返回 {n, mean, sd(样本标准差)} */
+    const n = values.length;
+    if (n === 0) return { n: 0, mean: NaN, sd: NaN };
+    const mean = values.reduce(function (a, b) { return a + b; }, 0) / n;
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+      const d = values[i] - mean;
+      sum += d * d;
+    }
+    const sd = n > 1 ? Math.sqrt(sum / (n - 1)) : 0;
+    return { n: n, mean: mean, sd: sd };
+  }
+
+  function calcCpK(values, lsl, usl) {
+    /**
+     * 计算过程能力指数。lsl / usl 可传 null 表示单侧。
+     * 返回 {n, mean, sd, cp, cpk, usable}；数据不足或 σ=0 时 usable=false。
+     */
+    const clean = values.filter(function (v) { return isFinite(Number(v)); }).map(Number);
+    const { n, mean, sd } = meanStd(clean);
+    const base = { n: n, mean: mean, sd: sd, cp: null, cpk: null, usable: false };
+    if (n < 2 || !(sd > 0)) return base;
+
+    let cp = null;
+    let cpk = null;
+    if (lsl !== null && lsl !== undefined && usl !== null && usl !== undefined) {
+      cp = (usl - lsl) / (6 * sd);
+    }
+    if (lsl !== null && lsl !== undefined) {
+      cpk = (mean - lsl) / (3 * sd);
+    }
+    if (usl !== null && usl !== undefined) {
+      const c = (usl - mean) / (3 * sd);
+      cpk = cpk === null ? c : Math.min(cpk, c);
+    }
+    return { n: n, mean: mean, sd: sd, cp: cp, cpk: cpk, usable: true };
+  }
+
+  function verdictForCpk(cpk) {
+    /** 判级：与 cpk_calculator.html 保持一致的 A/B/C/D 分级 */
+    if (!isFinite(cpk)) return { level: "?", text: "无法判定", color: "#6a737d" };
+    if (cpk >= 1.67) return { level: "A", text: "优秀", color: "#1a7f37" };
+    if (cpk >= 1.33) return { level: "B", text: "合格", color: "#0969da" };
+    if (cpk >= 1.0) return { level: "C", text: "边缘", color: "#bf8700" };
+    return { level: "D", text: "不足", color: "#cf222e" };
+  }
+
+  // ---------------------------------------------------------------------
   // 核心：构造桑基图
   // ---------------------------------------------------------------------
   function buildSankey(opts) {
@@ -382,8 +433,45 @@
     }).pop();
     const title = head + " & " + Math.max(0, layerNodes[0].length - 1) + " more";
 
+    // 节点所属层信息（供"点击节点 → 筛选数据子集"使用）
+    // layerCols: 每一层对应的原始列名
+    const layerCols = [sourceCol].concat(paramCols).concat([resultCol]);
+    const nodeLayerIdx = [];
+    const nodeColName = [];
+    // 每个节点用于筛选的原始值: 源层用完整值, 参数层用分箱/合并后的标签
+    const nodeFilterValue = [];
+    // 源层: shortenLabel 之后无法直接匹配原始行, 需要映射回完整值
+    const srcShortToRaw = {};
+    rows.forEach(function (r) {
+      const key = shortenLabel(r.src);
+      if (!(key in srcShortToRaw)) srcShortToRaw[key] = r.src;
+    });
+
+    layerNodes.forEach(function (layer, li) {
+      layer.forEach(function (n) {
+        const idx = nodeIndex[n];
+        if (nodeLayerIdx[idx] === undefined) {
+          nodeLayerIdx[idx] = li;
+          nodeColName[idx] = layerCols[li];
+          if (li === 0) {
+            nodeFilterValue[idx] = srcShortToRaw[n] !== undefined ? srcShortToRaw[n] : n;
+          } else {
+            nodeFilterValue[idx] = n; // 参数层 / 结果层的标签即可直接匹配
+          }
+        }
+      });
+    });
+
     return {
-      nodes: { label: allNodes, color: nodeColors, ngRatio: allNodes.map(function (n) { return nodeNgRatio[n]; }) },
+      nodes: {
+        label: allNodes,
+        color: nodeColors,
+        ngRatio: allNodes.map(function (n) { return nodeNgRatio[n]; }),
+        // 每个节点: [NG占比, 层索引, 列名, 筛选用原始值] —— 点击节点时用于筛选
+        customdata: allNodes.map(function (n, i) {
+          return [nodeNgRatio[n], nodeLayerIdx[i], nodeColName[i], nodeFilterValue[i]];
+        }),
+      },
       links: { source: srcL, target: tgtL, value: valL, color: colorL },
       title: title,
       baselineNg: baselineNg,
@@ -404,6 +492,9 @@
     ngRatioToColorAxis: ngRatioToColorAxis,
     mixColor: mixColor,
     shortenLabel: shortenLabel,
+    meanStd: meanStd,
+    calcCpK: calcCpK,
+    verdictForCpk: verdictForCpk,
   };
 
   if (typeof module !== "undefined" && module.exports) {

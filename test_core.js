@@ -79,5 +79,43 @@ assert.strictEqual(total, 800 * 5, "链路总量应为 4000 (800 行 × 5 层)")
 assert.strictEqual(firstLayer, 800, "第一层链路应为 800");
 assert.ok(result.nodes.label.includes("NG"), "应包含 NG 节点");
 assert.ok(result.nodes.label.includes("OK"), "应包含 OK 节点");
+assert.strictEqual(result.nodes.customdata.length, result.nodes.label.length, "customdata 应与节点数一致");
+assert.strictEqual(result.nodes.customdata[0].length, 4, "customdata 应为 [NG占比, 层索引, 列名, 筛选用原始值]");
+// 校验源层节点的筛选用值能还原到原始行（缩短 label → 完整 FlowCode）
+const srcLayerNode = result.nodes.customdata.find(function (cd) { return cd[1] === 0 && cd[3] !== "其他"; });
+assert.ok(srcLayerNode, "应存在源层节点");
+const rawValue = srcLayerNode[3];
+assert.ok(data.some(function (r) { return r.FlowCode === rawValue; }), "源层筛选用值应能在原始数据中匹配到行");
+
+// ============ calcCpK 断言 ============
+// 已知数据集: 手工构造 均值=10, σ≈1, 规格 8~12 → Cp=Cpk≈0.67
+const nums = [];
+for (let i = 1; i <= 20; i++) nums.push(i); // 1..20, 均值 10.5, sd≈5.92
+const stats = core.calcCpK(nums, 8, 12);
+assert.ok(stats.usable, "数据应可计算");
+assert.strictEqual(stats.n, 20);
+// 验证均值
+assert.ok(Math.abs(stats.mean - 10.5) < 1e-9, "均值应为 10.5");
+// σ 手算: sqrt(sum((x-10.5)^2)/19)
+// Cp = (12-8)/(6σ)
+const expectCp = 4 / (6 * stats.sd);
+assert.ok(Math.abs(stats.cp - expectCp) < 1e-9, "Cp 公式正确");
+// Cpk = min((12-10.5)/(3σ), (10.5-8)/(3σ))
+const expectCpk = Math.min((12 - 10.5) / (3 * stats.sd), (10.5 - 8) / (3 * stats.sd));
+assert.ok(Math.abs(stats.cpk - expectCpk) < 1e-9, "Cpk 公式正确");
+
+// 单侧: 只有 LSL
+const oneSided = core.calcCpK(nums, 8, null);
+assert.strictEqual(oneSided.cp, null, "单侧时 Cp 应为 null");
+assert.ok(oneSided.cpk > 0, "单侧 Cpk 应可算");
+assert.strictEqual(oneSided.cpk, (10.5 - 8) / (3 * oneSided.sd), "单侧 Cpk 公式正确");
+
+// 判级
+assert.strictEqual(core.verdictForCpk(0.8).level, "D");
+assert.strictEqual(core.verdictForCpk(1.2).level, "C");
+assert.strictEqual(core.verdictForCpk(1.5).level, "B");
+assert.strictEqual(core.verdictForCpk(2.0).level, "A");
+
+console.log("✅ 全部断言通过 (含 calcCpK / verdictForCpk)");
 
 console.log("\n✅ 全部断言通过");
