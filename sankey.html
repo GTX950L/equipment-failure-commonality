@@ -348,8 +348,61 @@
     renderHeaderTable();
     renderSelects();
     autoRecommend();
+    restoreLastConfig();   // 尝试恢复上次保存的配置(列名匹配才生效)
     renderParams();
     initCpkPanel();
+  }
+
+  // ---------- 记忆上次配置 (localStorage) ----------
+  // 保存: 源列 / 结果列 / 勾选参数 / TopN / 分箱 / 配色。刷新后自动恢复, 列名不匹配则忽略。
+  var CFG_KEY = "sankey_last_config_v1";
+  function saveConfig(){
+    try{
+      var params = [];
+      document.querySelectorAll("#paramList input[type=checkbox]:checked").forEach(function(b){ params.push(b.value); });
+      var ngVals = [];
+      document.querySelectorAll("#ngList input[type=checkbox]:checked").forEach(function(b){ ngVals.push(b.value); });
+      var cfg = {
+        source: sourceCol(), result: resultCol(), params: params, ng: ngVals,
+        topN: $("selTopN").value, bins: $("selBins").value, colorMode: state.colorMode,
+      };
+      localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
+    }catch(e){ /* 隐私模式等场景忽略 */ }
+  }
+  function restoreLastConfig(){
+    try{
+      var raw = localStorage.getItem(CFG_KEY);
+      if(!raw) return;
+      var cfg = JSON.parse(raw);
+      if(!cfg || !state.header.length) return;
+      // 列名必须存在于当前数据才恢复, 避免跨表串配置
+      if(cfg.source && state.header.indexOf(cfg.source) >= 0) $("selSource").value = cfg.source;
+      if(cfg.result && state.header.indexOf(cfg.result) >= 0) $("selResult").value = cfg.result;
+      if(cfg.topN && $("selTopN").querySelector('option[value="'+cfg.topN+'"]')) $("selTopN").value = cfg.topN;
+      if(cfg.bins && $("selBins").querySelector('option[value="'+cfg.bins+'"]')) $("selBins").value = cfg.bins;
+      if(cfg.colorMode === "binary" || cfg.colorMode === "gradient"){
+        state.colorMode = cfg.colorMode;
+        document.querySelectorAll('input[name="colorMode"]').forEach(function(rb){
+          if(rb.value === cfg.colorMode) rb.checked = true;
+        });
+      }
+      // 勾选参数(仅恢复仍存在的列)
+      if(Array.isArray(cfg.params)){
+        var set = new Set(cfg.params.filter(function(c){ return state.header.indexOf(c) >= 0; }));
+        document.querySelectorAll("#paramList input[type=checkbox]").forEach(function(b){
+          if(set.has(b.value)) b.checked = true;
+        });
+      }
+      // 不良值勾选(仅恢复仍存在的值)
+      if(Array.isArray(cfg.ng)){
+        var ngSet = new Set(cfg.ng.map(function(v){ return String(v).trim().toUpperCase(); }));
+        document.querySelectorAll("#ngList input[type=checkbox]").forEach(function(b){
+          if(ngSet.has(String(b.value).trim().toUpperCase())) b.checked = true;
+        });
+      }
+      warnIfHighCardinalitySource();
+      setInfo("已恢复上次的源列 / 参数 / 配色设置", "ok");
+    }catch(e){ /* 配置损坏则忽略 */ }
   }
 
   function setInfo(msg, cls){
@@ -422,7 +475,7 @@
     });
     renderParams();
     renderNg();
-    renderRange($("selTopN"), 2, 20, 6);
+    renderRange($("selTopN"), 2, 50, 6);
     renderRange($("selBins"), 2, 10, 5);
   }
 
@@ -516,12 +569,40 @@
     list.appendChild(note);
   }
 
-  $("selSource").addEventListener("change", function(){ renderParams(); });
+  $("selSource").addEventListener("change", function(){
+    renderParams();
+    warnIfHighCardinalitySource();
+  });
   $("selResult").addEventListener("change", function(){
     renderParams();
     renderNg();
   });
   $("selBins").addEventListener("change", function(){ renderParams(); });
+
+  // ---------- 源列智能提醒 ----------
+  // 当源列唯一值数超过行数 50% 时提示: 每条记录几乎都不同, 不适合做源列(会出现巨型"其他"节点)
+  function warnIfHighCardinalitySource(){
+    var col = sourceCol();
+    if(!col || !state.rows.length) return;
+    var seen = new Set(), limit = Math.min(state.rows.length, 1000);
+    for(var i=0;i<limit;i++) seen.add(String(state.rows[i][col]));
+    var ratio = seen.size / state.rows.length;
+    var tip = $("srcHighCardTip");
+    if(ratio > 0.5){
+      if(!tip){
+        tip = document.createElement("div");
+        tip.id = "srcHighCardTip";
+        tip.className = "hint";
+        tip.style.color = "var(--mar)";
+        tip.style.marginTop = "4px";
+        var wrap = $("selSource").closest("label");
+        (wrap || $("panelSel")).appendChild(tip);
+      }
+      tip.textContent = "⚠ 该列 " + seen.size + " 个唯一值 / " + state.rows.length + " 行（" + (ratio*100).toFixed(0) + "%），几乎每条都不同，做源列会出现巨型「其他」节点。若想看产品共性，建议改用工序参数列做首层。";
+    } else if(tip){
+      tip.remove();
+    }
+  }
 
   // ---------- 自动推荐 ----------
   function autoRecommend(){
@@ -560,6 +641,7 @@
     if(rc) $("selResult").value = rc;
     renderParams();
     renderNg();
+    warnIfHighCardinalitySource();
   }
 
   // ---------- 出图 ----------
@@ -647,6 +729,7 @@
     state.hlNode = -1;   // 新图重置高亮状态
     $("colorbar").style.display = "";
     bindSankeyClick();
+    saveConfig();   // 出图成功 → 记住当前配置
 
     // 出图后校验 CPK 筛选是否仍然有效（列被去掉则清掉筛选）
     var colsInPlot = [sourceCol()].concat(params).concat([resultCol()]);
@@ -662,6 +745,39 @@
       "NG 占比 <b>" + (result.baselineNg*100).toFixed(1) + "%</b>，" +
       params.length + " 层工序参数，源列「" + esc(sourceCol()) + "」保留 Top-" + $("selTopN").value +
       "。<br>💡 点击图上任意节点：该节点路径会<b>高亮</b>，并在下方 CPK 面板自动对该子集做能力分析（支持导出筛选数据）。";
+
+    // 源层"其他"节点预警: 合并节点 NG 占比高于基线 2 倍且样本数足够时, 提示展开查看
+    warnOtherNode(result);
+  }
+
+  // ---------- "其他"节点预警: 合并节点里可能藏着高 NG ----------
+  function warnOtherNode(result){
+    var tip = $("otherWarnTip");
+    if(tip) tip.remove();
+    if(!result || !result.nodes || !result.nodes.label) return;
+    var labels = result.nodes.label;
+    var customdata = result.nodes.customdata;
+    for(var i=0;i<labels.length;i++){
+      // 只检查源层(层索引 0)的"其他"节点
+      if(customdata[i] && customdata[i][1] === 0 && String(labels[i]).indexOf("其他") >= 0){
+        var ngRatio = customdata[i][0];
+        var n = customdata[i][4];
+        var ng = customdata[i][5];
+        var baseline = result.baselineNg || 0;
+        // NG 占比 ≥ 基线 2 倍 且 NG 数 ≥ 3 时预警
+        if(ng >= 3 && ngRatio > baseline * 2 && baseline > 0){
+          tip = document.createElement("div");
+          tip.id = "otherWarnTip";
+          tip.className = "hint";
+          tip.style.color = "var(--mar)";
+          tip.style.marginTop = "8px";
+          tip.innerHTML = "⚠️ 注意：「其他」节点聚合了 " + n.toLocaleString() + " 条记录，其中 <b>" + ng + " 条 NG</b>（占比 " + (ngRatio*100).toFixed(1) + "%，高于整体基线 " + (baseline*100).toFixed(1) + "%）。被合并的明细可能藏有共性，建议点击该节点后展开查看。";
+          var target = $("statLine");
+          if(target && target.parentNode) target.parentNode.insertBefore(tip, target.nextSibling);
+        }
+        break;
+      }
+    }
   }
   $("btnPlot").addEventListener("click", function(){
     if(!state.header.length){ setInfo("请先加载数据", "warn"); return; }
@@ -798,6 +914,17 @@
       var layerIdx = info[1], col = info[2], val = info[3];
       if(!col || state.header.indexOf(col) < 0) return;
 
+      // 点击源层「其他」节点 → 展开被合并的具体值清单(按 NG 优先), 可点单个值单独筛选
+      if(layerIdx === 0 && String(val).indexOf("其他") >= 0){
+        state.filter = { col: col, value: val, layerIdx: layerIdx };
+        state.cpkScope = "filter";
+        renderCpkScope();
+        renderFilterBar();
+        scheduleCalcCpk();
+        showOtherDetail(nodeIdx);
+        return;
+      }
+
       if(val === "NG" || val === "OK"){
         // 点击结果层节点 → 只看该结果的子集
         state.filter = null;
@@ -810,6 +937,102 @@
       renderFilterBar();
       scheduleCalcCpk();
     });
+  }
+
+  // ---------- 展开「其他」节点明细 ----------
+  // 列出被合并到"其他"的源列值(按 NG 数优先), 点击单个值 → 单独筛选该值
+  function showOtherDetail(nodeIdx){
+    var old = document.getElementById("otherDetailBox");
+    if(old) old.remove();
+
+    var col = sourceCol();
+    var rc = resultCol();
+    if(!col || !rc || !state.rows.length) return;
+    var ngVals = [];
+    document.querySelectorAll("#ngList input[type=checkbox]:checked").forEach(function(b){ ngVals.push(b.value); });
+    if(!ngVals.length) return;
+
+    // 统计源列每个值的样本数 / NG 数
+    var agg = {};
+    state.rows.forEach(function(r){
+      var v = String(r[col] === null || r[col] === undefined ? "" : r[col]);
+      var raw = String(r[rc] === null || r[rc] === undefined ? "" : r[rc]).trim().toUpperCase();
+      var e = agg[v] || { n: 0, ng: 0 };
+      e.n++;
+      if(ngVals.indexOf(raw) >= 0) e.ng++;
+      agg[v] = e;
+    });
+
+    // 找出被合并到「其他」的值: 按 NG 数优先排序后, 排在 Top-N 之外的那些
+    var topN = parseInt($("selTopN").value, 10) || 6;
+    var sorted = Object.keys(agg).map(function(k){ return { v: k, n: agg[k].n, ng: agg[k].ng }; })
+      .sort(function(a, b){ return b.ng - a.ng || b.n - a.n; });
+    var topSet = new Set(sorted.slice(0, topN).map(function(e){ return e.v; }));
+    var merged = sorted.filter(function(e){ return !topSet.has(e.v); });
+    if(!merged.length) return;
+
+    // 构建明细面板: NG 优先展示, 最多列 30 个, 其余折叠提示
+    var box = document.createElement("div");
+    box.id = "otherDetailBox";
+    box.className = "panel";
+    box.style.cssText = "margin-top:12px;padding:12px 16px";
+    var ngCount = merged.reduce(function(s, e){ return s + e.ng; }, 0);
+    var html = '<div class="section-title">🔍 「其他」节点明细（' + merged.length + ' 个值，其中 NG ' + ngCount + ' 条）</div>' +
+      '<div class="hint" style="margin-bottom:6px">被合并到「其他」的值按 NG 数排序，点击单个值可单独筛选分析：</div>' +
+      '<div style="max-height:220px;overflow-y:auto">';
+    var shown = 0;
+    merged.forEach(function(e){
+      if(shown >= 30) return;
+      shown++;
+      var hot = e.ng >= 2 ? ' style="color:var(--mar);font-weight:500"' : '';
+      html += '<label class="chk" style="display:flex;align-items:center;justify-content:space-between;padding:4px 6px;border-bottom:1px solid var(--border)">' +
+        '<span><input type="checkbox" value="' + esc(e.v) + '"> <span' + hot + '>' + esc(e.v) + '</span></span>' +
+        '<span class="ts" style="margin-left:12px;white-space:nowrap">' + e.n + ' 条 · NG ' + e.ng + '</span></label>';
+    });
+    if(merged.length > 30){
+      html += '<div class="hint" style="margin-top:6px">仅显示前 30 个，其余 ' + (merged.length - 30) + ' 个需通过上方勾选筛选。</div>';
+    }
+    html += '</div>' +
+      '<div style="margin-top:10px;display:flex;gap:8px;align-items:center">' +
+      '<button class="sec" id="otherApplySel">分析勾选的值</button>' +
+      '<button class="sec" id="otherSelectNg">只勾 NG 值</button>' +
+      '<button class="sec" id="otherClose">收起</button>' +
+      '</div>';
+    box.innerHTML = html;
+    var target = $("statLine");
+    if(target && target.parentNode) target.parentNode.insertBefore(box, target.nextSibling);
+
+    $("otherApplySel").addEventListener("click", function(){
+      var picked = [];
+      box.querySelectorAll("input[type=checkbox]:checked").forEach(function(b){ picked.push(b.value); });
+      if(!picked.length){ alert("请先勾选要分析的值"); return; }
+      if(picked.length === 1){
+        // 单个值 → 等价于点该值节点: 直接筛选
+        state.filter = { col: col, value: picked[0], layerIdx: 0 };
+      } else {
+        // 多个值 → 用"|"标记, filterValue 支持 OR 匹配
+        state.filter = { col: col, value: picked.join("\u0000OR\u0000"), layerIdx: 0 };
+      }
+      state.cpkScope = "filter";
+      renderCpkScope();
+      renderFilterBar();
+      scheduleCalcCpk();
+    });
+    $("otherSelectNg").addEventListener("click", function(){
+      box.querySelectorAll("input[type=checkbox]").forEach(function(b){
+        var label = b.closest("label");
+        b.checked = label && label.textContent.indexOf("NG 1") >= 0 ? false : false;
+      });
+      // 直接勾选 NG≥1 的项: 通过行数据重新判断
+      merged.forEach(function(e){
+        if(e.ng >= 1){
+          box.querySelectorAll("input[type=checkbox]").forEach(function(b){
+            if(b.value === e.v) b.checked = true;
+          });
+        }
+      });
+    });
+    $("otherClose").addEventListener("click", function(){ box.remove(); });
   }
 
   // ---------- 路径高亮：点击节点后, 经过该节点的完整链路(上游+下游)保持颜色, 其余变淡 ----------
@@ -971,8 +1194,10 @@
     }
     if(state.filter && state.cpkScope === "filter"){
       bar.style.display = "";
+      var fv = state.filter.value;
+      if(typeof fv === "string" && fv.indexOf("\u0000OR\u0000") >= 0) fv = fv.split("\u0000OR\u0000").join(" / ");
       bar.innerHTML =
-        '<span class="chip sel">' + esc(state.filter.col) + ' = ' + esc(state.filter.value) + '</span>' +
+        '<span class="chip sel">' + esc(state.filter.col) + ' = ' + esc(fv) + '</span>' +
         '<button class="sec" style="padding:3px 12px;font-size:12px;margin:0" id="btnClearFilter">✕ 清除筛选</button>' +
         '<button class="sec" style="padding:3px 12px;font-size:12px;margin:0 0 0 8px" id="btnExportFilter">📤 导出筛选数据</button>';
       $("btnClearFilter").addEventListener("click", function(){
@@ -1019,7 +1244,11 @@
   // 点击节点后：按层类型把节点值还原成可匹配的数据子集
   function applyFilter(rows, col, value, layerIdx){
     if(layerIdx === 0){
-      // 源层：节点值是完整原始值（如完整 FlowCode）
+      // 源层：节点值是完整原始值（如完整条码）; 支持 \u0000OR\u0000 分隔的多值匹配(展开"其他"勾选多个)
+      if(typeof value === "string" && value.indexOf("\u0000OR\u0000") >= 0){
+        var set = new Set(value.split("\u0000OR\u0000"));
+        return rows.filter(function(r){ return set.has(String(r[col])); });
+      }
       return rows.filter(function(r){ return String(r[col]) === String(value); });
     }
     // 参数层：对每行做同样的分箱/合并后匹配
