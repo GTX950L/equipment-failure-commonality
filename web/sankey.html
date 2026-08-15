@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设备问题共性分析 · 桑基图</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔧</text></svg>">
+<style>
+  :root{
+    --c-primary:#2f6db5;      /* 主题蓝 */
+    --c-fit:#e4572e;          /* NG 红 */
+    --good:#1a7f37; --ok:#0969da; --mar:#bf8700; --bad:#cf222e;
+    --bg:#f4f6f8; --card:#ffffff; --border:#dfe3e8; --text:#1f2328; --muted:#6a737d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--text);line-height:1.55;font-size:14px}
+  header{padding:18px 24px;background:linear-gradient(95deg,#1f2328,#32383f);color:#fff;
+         box-shadow:0 1px 4px rgba(0,0,0,.15)}
+  header h1{margin:0;font-size:19px;font-weight:650;letter-spacing:.3px}
+  header p{margin:5px 0 0;font-size:12.5px;color:#b9c0c8}
+  .wrap{display:flex;flex-wrap:wrap;gap:18px;padding:18px 24px;align-items:flex-start}
+  .panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px;
+         flex:1 1 330px;min-width:300px;box-shadow:0 1px 3px rgba(27,31,36,.04)}
+  .panel h2{margin:0 0 12px;font-size:14px;font-weight:650;color:#32383f;
+            border-bottom:2px solid #eef1f4;padding-bottom:8px;display:flex;align-items:center;gap:7px}
+  .step{background:#32383f;color:#fff;border-radius:50%;width:20px;height:20px;font-size:11px;
+        display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+  textarea{width:100%;height:160px;font-family:Consolas,Menlo,"Courier New",monospace;font-size:12.5px;
+           border:1px solid var(--border);border-radius:7px;padding:9px;resize:vertical;color:#1f2328}
+  textarea:focus{outline:none;border-color:var(--c-primary);box-shadow:0 0 0 3px rgba(47,109,181,.12)}
+  .row{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0}
+  .row label{flex:1 1 130px;font-size:12.5px;color:var(--muted);font-weight:550}
+  .row input[type=number]{width:100%;padding:7px 8px;margin-top:3px;border:1px solid var(--border);
+           border-radius:7px;font-size:13px;color:#1f2328}
+  .row input:focus{outline:none;border-color:var(--c-primary);box-shadow:0 0 0 3px rgba(47,109,181,.12)}
+  select{width:100%;padding:7px 8px;border:1px solid var(--border);border-radius:7px;font-size:13px;
+         background:#fff;color:#1f2328}
+  select:focus{outline:none;border-color:var(--c-primary);box-shadow:0 0 0 3px rgba(47,109,181,.12)}
+  .chk{font-size:13px;margin:5px 0;color:#32383f;display:flex;align-items:center;gap:7px;cursor:pointer}
+  .chk input{width:15px;height:15px;accent-color:var(--c-primary)}
+  button{background:var(--c-primary);color:#fff;border:0;border-radius:7px;padding:9px 16px;font-size:13px;
+         font-weight:600;cursor:pointer;margin-right:8px;transition:filter .15s}
+  button:hover{filter:brightness(1.08)}
+  button.sec{background:#eef1f4;color:#32383f}
+  button.sec:hover{background:#e2e7ec}
+  .dropzone{border:2px dashed var(--border);border-radius:9px;padding:18px;text-align:center;color:var(--muted);
+            font-size:13px;cursor:pointer;transition:.15s;margin-top:10px}
+  .dropzone:hover,.dropzone.over{border-color:var(--c-primary);background:#f0f6fd;color:#2f6db5}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5}
+  .parseinfo{font-size:12px;color:var(--muted);margin:6px 0 0;min-height:16px;line-height:1.5}
+  .parseinfo.ok{color:var(--good)}
+  .parseinfo.warn{color:var(--mar)}
+  .section-title{font-size:12.5px;font-weight:650;color:#32383f;margin:14px 0 6px;display:flex;align-items:center;gap:6px}
+  .tag{font-size:10.5px;background:#eef1f4;color:var(--muted);border-radius:4px;padding:1px 6px;font-weight:500}
+  .tag.num{background:#eaf3fb;color:#0969da}
+  table{border-collapse:collapse;font-size:12px;width:100%}
+  th,td{border:1px solid var(--border);padding:5px 8px;text-align:left}
+  th{background:#f3f5f7;font-weight:600;position:sticky;top:0}
+  tbody tr:nth-child(even){background:#fafbfc}
+  .scroll{max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:7px}
+  details{border:1px solid var(--border);border-radius:8px;padding:0 12px;margin-top:10px}
+  details summary{cursor:pointer;padding:9px 0;font-weight:600;font-size:12.5px;color:#32383f}
+  #chartBox{width:100%;min-height:480px;border:1px solid var(--border);border-radius:8px;background:#fff;margin-top:10px}
+  .legend{font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.6}
+  .legend .red{color:var(--bad);font-weight:600}
+  .legend .blue{color:#0969da;font-weight:600}
+  footer{text-align:center;color:var(--muted);font-size:11.5px;padding:16px}
+  #dropHint{position:fixed;left:0;top:0;right:0;bottom:0;z-index:999;display:none;
+    align-items:center;justify-content:center;background:rgba(31,35,40,.4);
+    color:#fff;font-size:21px;font-weight:600;letter-spacing:.5px;
+    pointer-events:none;backdrop-filter:blur(2px)}
+  #dropHint.drag{display:flex}
+  .empty-tip{color:var(--muted);font-size:12.5px;padding:20px 0;text-align:center}
+  /* CPK 面板 */
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(86px,1fr));gap:8px;margin:10px 0}
+  .metric{background:#fbfcfd;border:1px solid var(--border);border-left:4px solid #c9d1d9;
+          border-radius:8px;padding:8px;text-align:center}
+  .metric .k{font-size:10.5px;color:var(--muted)}
+  .metric .v{font-size:17px;font-weight:700;margin-top:2px;color:#1f2328}
+  .verdict{margin:8px 0;padding:10px 13px;border-radius:8px;font-size:13px;font-weight:600;
+           display:flex;align-items:center;gap:9px;border:1px solid}
+  .verdict .badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;color:#fff;letter-spacing:.5px}
+  .cmp-table td{font-variant-numeric:tabular-nums}
+  .cpk-chart{width:100%;height:260px;margin-top:10px;border:1px solid var(--border);border-radius:8px;background:#fff}
+  .chip{display:inline-block;background:#eef1f4;color:#32383f;border-radius:20px;padding:3px 12px;font-size:12px;
+        margin:2px 5px 2px 0;cursor:pointer;border:1px solid transparent}
+  .chip.sel{background:#eaf3fb;border-color:#2f6db5;color:#0969da;font-weight:600}
+  /* 颜色图例 */
+  .colorbar-wrap{margin-top:8px;padding:8px 12px;background:#fff;border:1px solid var(--border);border-radius:8px}
+  .colorbar{height:10px;border-radius:5px;background:linear-gradient(to right,#2f6db5 0%,#8a94a0 50%,#e4572e 100%)}
+  .colorbar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🔧 设备问题共性分析 · 桑基图</h1>
+  <p>上传数据表 → 自动识别表头 → 打钩选列 → 出图 · 离线版 · 无需安装任何软件 / 数据不出本机</p>
+</header>
+
+<div id="dropHint">📂 松开鼠标，导入数据文件（支持 .csv / .xlsx / .xls）</div>
+
+<div class="wrap">
+  <!-- ============ 面板 ① 数据 ============ -->
+  <div class="panel">
+    <h2><span class="step">1</span> 数据</h2>
+    <textarea id="dataArea" placeholder="直接粘贴 CSV / Excel 复制出来的表格：&#10;&#10;料号,条码,注水阀,注水量-g,测试结果&#10;M0V405N00D-1,KJCHUZB01RU0001T1D+A466P,1,0.1108,PASS&#10;M0V405N00D-1,KJCHUZB05NK0001T1D+A461P,3,0.1111,FAIL&#10;&#10;（列名任意、列数不限，只需首行是列名）&#10;或点击下方按钮选择文件 / 把文件拖进来"></textarea>
+    <div id="parseInfo" class="parseinfo"></div>
+    <div style="margin-top:10px">
+      <button id="btnLoad">解析表格</button>
+      <button id="btnSample" class="sec">加载示例数据</button>
+      <button id="btnClear" class="sec">清空</button>
+    </div>
+    <div class="dropzone" id="dropzone">📂 点击选择文件，或直接把文件拖到这里<br><span style="font-size:11px">支持 .csv / .xlsx / .xls（自动识别表头）</span></div>
+    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
+    <div class="hint">💡 没有现成数据？点「加载示例数据」先体验。</div>
+  </div>
+
+  <!-- ============ 面板 ② 选列 ============ -->
+  <div class="panel" id="panelSel" style="display:none">
+    <h2><span class="step">2</span> 打钩选择参与分析的列</h2>
+
+    <details id="headerBox">
+      <summary>📋 自动识别的表头（点开查看每列类型与样例值）</summary>
+      <div id="headerTable" class="scroll" style="margin-top:8px"></div>
+      <div id="previewTable" style="margin-top:8px">
+        <div class="section-title">数据预览（前 5 行）</div>
+        <div class="scroll"></div>
+      </div>
+    </details>
+
+    <div class="row">
+      <label>🎯 源列（条母 / 型号 / 批号）<select id="selSource"></select></label>
+      <label>🏁 结果列（NG/OK 或 PASS/FAIL 判定）<select id="selResult"></select></label>
+    </div>
+
+    <div class="section-title">🔗 工序参数列（勾选要分析的列）</div>
+    <div id="paramList"></div>
+
+    <div class="section-title">🚨 哪些值算「不良」？</div>
+    <div id="ngList" class="chk-wrap"></div>
+
+    <div class="row">
+      <label>源列保留多少个<select id="selTopN"></select></label>
+      <label>数值分箱数<select id="selBins"></select></label>
+    </div>
+    <div class="hint">颜色含义：<span style="color:var(--bad);font-weight:600">红 = 该路径 NG 明显偏多</span>，<span style="color:#0969da;font-weight:600">蓝 = 合格为主</span>。</div>
+  </div>
+
+  <!-- ============ 面板 ③ 出图 ============ -->
+  <div class="panel" style="flex:2 1 520px;min-width:420px">
+    <h2><span class="step">3</span> 出图</h2>
+    <div id="chartArea">
+      <div class="empty-tip">先在「打钩选择」面板里选好列，再点「🚀 生成桑基图」。</div>
+    </div>
+    <div style="margin-top:10px">
+      <button id="btnPlot" type="primary">🚀 生成桑基图</button>
+      <button id="btnPng" class="sec">💾 下载 PNG</button>
+      <button id="btnSvg" class="sec">🖼 下载 SVG</button>
+      <span class="hint" style="display:inline-block;margin-left:6px">PNG 可在图上方工具条直接下载 / 放大。</span>
+    </div>
+    <div style="margin-top:8px">
+      配色模式：
+      <label class="chk"><input type="radio" name="colorMode" value="gradient" checked> 科学渐变（红-灰-蓝）</label>
+      <label class="chk"><input type="radio" name="colorMode" value="binary"> JMP 二色（红 / 蓝）</label>
+    </div>
+    <div id="statLine" class="legend"></div>
+    <div class="legend" style="margin-top:4px">
+      📖 读图方法：<span class="red">红色</span>流从哪一层开始分叉，问题就集中在哪一层 —— 例如某个型号 + 某个档位 + 某个数值区间一路红到 NG。
+    </div>
+    <div class="colorbar-wrap" id="colorbar" style="display:none">
+      <div class="colorbar"></div>
+      <div class="colorbar-label"><span>蓝（合格为主）</span><span>灰（接近整体水平）</span><span>红（NG 集中）</span></div>
+    </div>
+
+    <!-- ============ CPK 联合分析面板 ============ -->
+    <details id="cpkBox" style="margin-top:14px">
+      <summary>📐 CPK 过程能力分析（联合判定）</summary>
+      <div class="hint" style="margin:6px 0 10px">
+        点击图上任意节点（如红色型号 / 参数区间 / NG），自动筛选出该子集；对比<b>「当前范围 / 全量 / 仅 OK / 仅 NG」</b>的过程能力，
+        判断红色路径到底是<b>参数真的偏移/发散</b>（该子集 CPK 低），还是<b>另有其因</b>（CPK 正常）。
+      </div>
+
+      <div class="section-title">数据范围（点击图上节点会自动切到「当前筛选」）</div>
+      <div id="cpkScope"></div>
+      <div id="cpkFilterBar" style="display:none;margin-top:8px"></div>
+
+      <div class="row">
+        <label>分析参数（数值列）<select id="cpkParam"></select></label>
+        <label>下限 LSL<input type="number" id="cpkLsl" step="any" placeholder="留空=μ-3σ"></label>
+        <label>上限 USL<input type="number" id="cpkUsl" step="any" placeholder="留空=μ+3σ"></label>
+      </div>
+      <button id="btnCpk">📐 计算 CPK</button>
+      <span class="hint" style="display:inline-block;margin-left:6px">规格限 LSL/USL 请填图纸 / 客户标准值，留空则用 μ±3σ 试算占位。</span>
+      <div id="cpkResult" style="margin-top:10px"></div>
+    </details>
+  </div>
+</div>
+
+<footer>设备问题共性分析 · 离线版 · 数据仅在你的浏览器内处理，不会上传任何内容</footer>
+
+<!-- 核心逻辑(小, 立即加载); Plotly/XLSX 为懒加载, 用到时才下载, 保证页面秒开 -->
+<script src="sankey_core.js"></script>
+<script src="demo_data.js"></script>
+<script>
+"use strict";
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var state = {
+    header: [],
+    rows: [],
+    filter: null,          // 点击节点筛选条件: {col, value}
+    cpkScope: "all",       // all | filter | ok | ng
+    cpkResult: null,       // 最近一次 buildSankey 结果（含节点 customdata）
+    colorMode: "gradient", // gradient 科学渐变 | binary JMP 二色
+  };
+
+  // ---------- 懒加载 Plotly / XLSX (页面秒开的关键) ----------
+  var libLoading = {};
+  function loadScript(src){
+    return new Promise(function(resolve, reject){
+      if(libLoading[src] && libLoading[src].done) return resolve();
+      var s = document.createElement("script");
+      s.src = src;
+      s.onload = function(){ libLoading[src] = { done: true }; resolve(); };
+      s.onerror = function(){ libLoading[src] = null; reject(new Error("加载失败: " + src)); };
+      document.head.appendChild(s);
+    });
+  }
+  function ensurePlotly(){
+    return loadScript("lib/plotly.min.js").then(function(){
+      if(typeof Plotly === "undefined") {
+        return loadScript("https://cdn.plot.ly/plotly-2.35.2.min.js");
+      }
+    });
+  }
+  function ensureXLSX(){
+    return loadScript("lib/xlsx.full.min.js").then(function(){
+      if(typeof XLSX === "undefined") {
+        return loadScript("https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js");
+      }
+    });
+  }
+
+  // ---------- 解析 CSV ----------
+  function textToRows(text){
+    var parsed = SankeyCore.parseDelimited(text);
+    if(!parsed.header.length){ return {header:[],rows:[]}; }
+    var rows = [];
+    for(var i=0;i<parsed.rows.length;i++){
+      var obj = {};
+      for(var j=0;j<parsed.header.length;j++){
+        obj[parsed.header[j]] = parsed.rows[i][j];
+      }
+      rows.push(obj);
+    }
+    return {header:parsed.header, rows:rows};
+  }
+
+  // ---------- 文件读取 ----------
+  function readFile(file){
+    var name = (file.name||"").toLowerCase();
+    if(name.endsWith(".xlsx") || name.endsWith(".xls")){
+      setInfo("正在加载 Excel 解析引擎（首次约 1 秒）…");
+      ensureXLSX().then(function(){
+        setInfo("");
+        var reader = new FileReader();
+        reader.onload = function(e){
+          try{
+            var wb = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
+            var ws = wb.Sheets[wb.SheetNames[0]];
+            var aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:""});
+            if(!aoa.length){ setInfo("文件内容为空", "warn"); return; }
+            var header = aoa[0].map(function(h){ return String(h).trim(); });
+            var rows = [];
+            for(var i=1;i<aoa.length;i++){
+              var obj = {};
+              var empty = true;
+              for(var j=0;j<header.length;j++){
+                var v = aoa[i][j];
+                obj[header[j]] = (v===null||v===undefined) ? "" : String(v);
+                if(obj[header[j]]!=="") empty = false;
+              }
+              if(!empty) rows.push(obj);
+            }
+            loadData(header, rows, name);
+          }catch(err){
+            if(window.console) console.error("[Excel 解析]", err);
+            setInfo("Excel 解析失败: "+err.message, "warn");
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }).catch(function(err){ setInfo("Excel 解析引擎加载失败: "+err.message, "warn"); });
+    } else {
+      // CSV: 自动尝试 GBK / UTF-8
+      var r2 = new FileReader();
+      r2.onload = function(e){
+        var buf = new Uint8Array(e.target.result);
+        var text = null;
+        try{ text = new TextDecoder("gbk",{fatal:true}).decode(buf); }
+        catch(_){ try{ text = new TextDecoder("utf-8",{fatal:true}).decode(buf); }
+          catch(__){ text = new TextDecoder("utf-8").decode(buf); } }
+        var parsed = textToRows(text);
+        if(parsed.header.length) loadData(parsed.header, parsed.rows, name);
+        else setInfo("未能识别表头，请确认文件首行为列名", "warn");
+      };
+      r2.readAsArrayBuffer(file);
+    }
+  }
+
+  // ---------- 状态加载 ----------
+  function loadData(header, rows, name){
+    state.header = header;
+    state.rows = rows;
+    state.filter = null;
+    state.cpkScope = "all";
+    state.cpkResult = null;
+    $("panelSel").style.display = "";
+    setInfo("已载入「"+(name||"粘贴数据")+"」："+rows.length.toLocaleString()+" 行 × "+header.length+" 列", "ok");
+    renderHeaderTable();
+    renderSelects();
+    autoRecommend();
+    renderParams();
+    initCpkPanel();
+  }
+
+  function setInfo(msg, cls){
+    var el = $("parseInfo");
+    el.textContent = msg;
+    el.className = "parseinfo " + (cls||"");
+  }
+
+  // ---------- 表头识别表 ----------
+  function colType(header, col){
+    var vals = [];
+    for(var i=0;i<Math.min(state.rows.length, 200);i++){
+      vals.push(state.rows[i][col]);
+    }
+    return SankeyCore.isNumericColumn(vals) ? "num" : "txt";
+  }
+
+  function renderHeaderTable(){
+    var html = '<table><thead><tr><th>列名</th><th>类型</th><th>唯一值数</th><th>样例值</th></tr></thead><tbody>';
+    // 大数据集采样识别, 最多看前 1000 行
+    var limit = Math.min(state.rows.length, 1000);
+    for(var i=0;i<state.header.length;i++){
+      var col = state.header[i];
+      var uniq = new Set();
+      var samples = [];
+      var s = 0;
+      for(var j=0;j<limit;j++){
+        var v = state.rows[j][col];
+        uniq.add(String(v));
+        if(s<3){ samples.push(String(v)); s++; }
+      }
+      var type = colType(state.header, col);
+      var uniqLabel = (state.rows.length > limit ? "≥" : "") + uniq.size;
+      html += '<tr><td><strong>'+esc(col)+'</strong></td>'+
+              '<td><span class="tag '+(type==="num"?"num":"")+'">'+(type==="num"?"数值":"文本")+'</span></td>'+
+              '<td>'+uniqLabel+'</td>'+
+              '<td>'+esc(samples.join("、").slice(0,50))+'</td></tr>';
+    }
+    html += '</tbody></table>';
+    $("headerTable").innerHTML = html;
+
+    // 预览表
+    var p = '<table><thead><tr>';
+    for(var h=0;h<state.header.length;h++) p += '<th>'+esc(state.header[h])+'</th>';
+    p += '</tr></thead><tbody>';
+    for(var r=0;r<Math.min(state.rows.length,5);r++){
+      p += '<tr>';
+      for(var c=0;c<state.header.length;c++) p += '<td>'+esc(String(state.rows[r][state.header[c]]))+'</td>';
+      p += '</tr>';
+    }
+    p += '</tbody></table>';
+    $("previewTable").querySelector(".scroll").innerHTML = p;
+  }
+
+  // ---------- 列选择控件 ----------
+  function renderSelects(){
+    var s = $("selSource");
+    s.innerHTML = "";
+    state.header.forEach(function(c){
+      var o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      s.appendChild(o);
+    });
+    var r = $("selResult");
+    r.innerHTML = "";
+    state.header.forEach(function(c){
+      var o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      r.appendChild(o);
+    });
+    renderParams();
+    renderNg();
+    renderRange($("selTopN"), 2, 20, 6);
+    renderRange($("selBins"), 2, 10, 5);
+  }
+
+  function renderRange(sel, min, max, def){
+    sel.innerHTML = "";
+    for(var i=min;i<=max;i++){
+      var o = document.createElement("option");
+      o.value = i; o.textContent = i;
+      if(i===def) o.selected = true;
+      sel.appendChild(o);
+    }
+  }
+
+  function sourceCol(){ return $("selSource").value; }
+  function resultCol(){ return $("selResult").value; }
+
+  function paramCandidates(){
+    return state.header.filter(function(c){ return c!==sourceCol() && c!==resultCol(); });
+  }
+
+  function renderParams(){
+    var list = $("paramList");
+    list.innerHTML = "";
+    var cands = paramCandidates();
+    if(!cands.length){ list.innerHTML = '<div class="empty-tip">没有可选的参数列（源列和结果列占了全部列）</div>'; return; }
+    // 按表头顺序展示（不排序、不自动勾选）
+    cands.forEach(function(col){
+      var label = document.createElement("label");
+      label.className = "chk";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = col;
+      cb.checked = false; // 默认全部不打勾，由用户手动选择
+      label.appendChild(cb);
+      var type = colType(state.header, col);
+      label.appendChild(document.createTextNode(" "+col+" "));
+      var tag = document.createElement("span");
+      tag.className = "tag "+(type==="num"?"num":"");
+      tag.textContent = type==="num"?"数值":"文本";
+      label.appendChild(tag);
+      list.appendChild(label);
+    });
+    var note = document.createElement("div");
+    note.className = "hint";
+    note.textContent = "请勾选要分析的工序参数列（默认全部未勾选，可多选）。";
+    list.appendChild(note);
+  }
+
+  function renderNg(){
+    var list = $("ngList");
+    list.innerHTML = "";
+    var col = resultCol();
+    if(!col) return;
+    var counts = {};
+    for(var i=0;i<state.rows.length;i++){
+      var v = String(state.rows[i][col]).trim();
+      if(v==="") continue;
+      var key = v.toUpperCase();
+      if(!counts[key]) counts[key] = {display:v, key:key, count:0};
+      counts[key].count++;
+    }
+    var items = Object.keys(counts).map(function(k){ return counts[k]; });
+    if(!items.length){ list.innerHTML = '<div class="empty-tip">结果列没有数据</div>'; return; }
+
+    // 自动识别"不良"值: 优先关键词(NG/FAIL/不良...), 否则勾少数派
+    var badKw = ["NG","FAIL","NG_","FAIL_","不良","不合格","REJECT","降级","异常","NG(FAIL)"];
+    var autoKeys = {};
+    items.forEach(function(u){
+      if(badKw.some(function(k){ return u.key.indexOf(k) >= 0; })) autoKeys[u.key] = true;
+    });
+    if(!Object.keys(autoKeys).length){
+      items.slice().sort(function(a,b){ return a.count - b.count; });
+      autoKeys[items[0].key] = true;
+    }
+
+    items.forEach(function(u){
+      var label = document.createElement("label");
+      label.className = "chk";
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = u.display;
+      cb.checked = !!autoKeys[u.key];
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(" "+u.display+"（"+u.count.toLocaleString()+" 条）"));
+      list.appendChild(label);
+    });
+    var chosen = items.filter(function(u){ return autoKeys[u.key]; }).map(function(u){ return u.display; }).join(" / ");
+    var note = document.createElement("div");
+    note.className = "hint";
+    note.textContent = "自动识别「" + chosen + "」为不良值，可在上方手动调整。";
+    list.appendChild(note);
+  }
+
+  $("selSource").addEventListener("change", function(){ renderParams(); });
+  $("selResult").addEventListener("change", function(){
+    renderParams();
+    renderNg();
+  });
+  $("selBins").addEventListener("change", function(){ renderParams(); });
+
+  // ---------- 自动推荐 ----------
+  function autoRecommend(){
+    // 源列: 按优先级匹配, 避免把"设备编号/单据编号"当源列;
+    // 同一优先级内多个候选时, 取唯一值数最多的列(如"料号"唯一值少而"条码"多时优先条码)
+    var srcKwGroups = [
+      ["料号", "条码", "型号", "品号", "物料", "批号", "产品", "flowcode", "条母"],
+      ["code", "id"],
+    ];
+    var resKw = ["判定", "结果", "ng", "ok", "pass", "fail", "合格", "不良", "判"];
+    var sc = "", rc = "";
+    var srcUniq = function(col){
+      var s = new Set(), limit = Math.min(state.rows.length, 1000);
+      for(var i=0;i<limit;i++) s.add(String(state.rows[i][col]));
+      return s.size;
+    };
+    for(var g=0; g<srcKwGroups.length && !sc; g++){
+      var matched = [];
+      for(var i=0;i<state.header.length;i++){
+        var low = state.header[i].toLowerCase();
+        if(srcKwGroups[g].some(function(k){ return low.indexOf(k) >= 0; })) matched.push(state.header[i]);
+      }
+      if(matched.length){
+        sc = matched[0];
+        for(var mi=1; mi<matched.length; mi++){
+          if(srcUniq(matched[mi]) > srcUniq(sc)) sc = matched[mi];
+        }
+        break;
+      }
+    }
+    for(var j=0;j<state.header.length;j++){
+      var low2 = state.header[j].toLowerCase();
+      if(!rc && resKw.some(function(k){ return low2.indexOf(k) >= 0; })) rc = state.header[j];
+    }
+    if(sc) $("selSource").value = sc;
+    if(rc) $("selResult").value = rc;
+    renderParams();
+    renderNg();
+  }
+
+  // ---------- 出图 ----------
+  function plotSankey(){
+    if(!state.header.length){ setInfo("请先加载数据", "warn"); return; }
+    syncColorbarLabel();
+    var params = [];
+    var boxes = $("paramList").querySelectorAll("input[type=checkbox]");
+    boxes.forEach(function(b){ if(b.checked) params.push(b.value); });
+    if(!params.length){ alert("请至少勾选 1 个工序参数列"); return; }
+
+    var ngVals = [];
+    $("ngList").querySelectorAll("input[type=checkbox]").forEach(function(b){ if(b.checked) ngVals.push(b.value); });
+    if(!ngVals.length){ alert("请至少勾选 1 个值作为「不良」"); return; }
+
+    var result = SankeyCore.buildSankey({
+      data: state.rows,
+      sourceCol: sourceCol(),
+      paramCols: params,
+      resultCol: resultCol(),
+      ngValues: ngVals,
+      topN: parseInt($("selTopN").value, 10),
+      bins: parseInt($("selBins").value, 10),
+      colorMode: state.colorMode,
+    });
+
+    if(!result){ $("chartArea").innerHTML = '<div class="empty-tip">没有可绘制的数据</div>'; return; }
+
+    // 每层 X 坐标（让层均匀横向排布）+ 层标题标注
+    var L = result.layers.length;
+    var layerX = function(li){ return L > 1 ? 0.02 + 0.96 * li / (L - 1) : 0.5; };
+    var nodeX = new Array(result.nodes.label.length);
+    result.layers.forEach(function(layer, li){
+      var x = layerX(li);
+      layer.indices.forEach(function(i){ nodeX[i] = x; });
+    });
+    var annotations = result.layers.map(function(layer, li){
+      return {
+        text: layer.name,
+        x: layerX(li),
+        y: 1.06,
+        xref: "paper", yref: "paper",
+        showarrow: false,
+        xanchor: "center",
+        font: { size: 12, color: "#32383f" },
+      };
+    });
+
+    var data = [{
+      type: "sankey",
+      arrangement: "snap",
+      node: {
+        pad: 12, thickness: 14,
+        x: nodeX,
+        line: { color: "black", width: 0.5 },
+        label: result.nodes.label,
+        color: result.nodes.color,
+        customdata: result.nodes.customdata, // [NG占比, 层索引, 列名, 筛选用值, n, ng, 完整取值]
+        hovertemplate: "%{customdata[2]} = %{label}<br>" +
+          "NG 占比: %{customdata[0]:.1%} · 样本数: %{customdata[4]}（NG %{customdata[5]} 条）<br>" +
+          "完整取值: %{customdata[6]}<extra></extra>",
+      },
+      link: {
+        source: result.links.source,
+        target: result.links.target,
+        value: result.links.value,
+        color: result.links.color,
+        hoverinfo: "none",
+        hovertemplate: "%{source.label} → %{target.label}<br>样本数: %{value}<extra></extra>",
+      },
+    }];
+
+    var layout = {
+      title: { text: result.title, x: 0.5 },
+      font: { family: "Microsoft YaHei, Arial", size: 12 },
+      height: 560,
+      margin: { l: 10, r: 10, t: 70, b: 30 },
+      paper_bgcolor: "#fff",
+      annotations: annotations,
+    };
+
+    $("chartArea").innerHTML = '<div id="chartBox"></div>';
+    Plotly.newPlot("chartBox", data, layout, { responsive: true, displaylogo: false });
+    state.cpkResult = result;
+    $("colorbar").style.display = "";
+    bindSankeyClick();
+
+    // 出图后校验 CPK 筛选是否仍然有效（列被去掉则清掉筛选）
+    var colsInPlot = [sourceCol()].concat(params).concat([resultCol()]);
+    if(state.filter && colsInPlot.indexOf(state.filter.col) < 0){
+      state.filter = null;
+      state.cpkScope = "all";
+      renderCpkScope();
+      renderFilterBar();
+    }
+
+    $("statLine").innerHTML =
+      "📊 共 " + state.rows.length.toLocaleString() + " 条记录，" +
+      "NG 占比 <b>" + (result.baselineNg*100).toFixed(1) + "%</b>，" +
+      params.length + " 层工序参数，源列「" + esc(sourceCol()) + "」保留 Top-" + $("selTopN").value +
+      "。<br>💡 点击图上任意节点：该节点路径会<b>高亮</b>，并在下方 CPK 面板自动对该子集做能力分析（支持导出筛选数据）。";
+  }
+  $("btnPlot").addEventListener("click", function(){
+    if(!state.header.length){ setInfo("请先加载数据", "warn"); return; }
+    setInfo("正在加载绘图引擎（首次约 1~3 秒）…");
+    ensurePlotly().then(function(){
+      setInfo("");
+      plotSankey();
+    }).catch(function(e){ setInfo(e.message, "warn"); });
+  });
+
+  // 配色模式切换 → 只更新颜色 (restyle), 不重建整图
+  function replotColor(){
+    if(!state.header.length || !document.querySelector("#chartBox")) return;
+    var params = [];
+    document.querySelectorAll("#paramList input[type=checkbox]:checked").forEach(function(b){ params.push(b.value); });
+    if(!params.length) return;
+    var ngVals = [];
+    document.querySelectorAll("#ngList input[type=checkbox]:checked").forEach(function(b){ ngVals.push(b.value); });
+    if(!ngVals.length) return;
+    var result = SankeyCore.buildSankey({
+      data: state.rows,
+      sourceCol: sourceCol(),
+      paramCols: params,
+      resultCol: resultCol(),
+      ngValues: ngVals,
+      topN: parseInt($("selTopN").value, 10),
+      bins: parseInt($("selBins").value, 10),
+      colorMode: state.colorMode,
+    });
+    if(!result) return;
+    state.cpkResult = result;
+    syncColorbarLabel();
+    var gd = document.querySelector(".js-plotly-plot");
+    if(gd){
+      Plotly.restyle(gd, {
+        "node.color": [result.nodes.color],
+        "link.color": [result.links.color],
+      }, [0]);
+    }
+  }
+
+  document.querySelectorAll('input[name="colorMode"]').forEach(function(rb){
+    rb.addEventListener("change", function(){
+      state.colorMode = rb.value;
+      ensurePlotly().then(replotColor).catch(function(){});
+    });
+  });
+
+  $("btnPng").addEventListener("click", function(){
+    ensurePlotly().then(function(){ downloadImage("png", "sankey.png"); }).catch(function(e){ alert(e.message); });
+  });
+  $("btnSvg").addEventListener("click", function(){
+    ensurePlotly().then(function(){ downloadImage("svg", "sankey.svg"); }).catch(function(e){ alert(e.message); });
+  });
+
+  // 配色模式切换时同步图例文案（在出图前调用）
+  function syncColorbarLabel(){
+    var labels = document.querySelectorAll("#colorbar .colorbar-label span");
+    if(!labels.length) return;
+    if(state.colorMode === "binary"){
+      labels[0].textContent = "蓝（OK 为主）";
+      labels[1].textContent = "以基线 NG 占比为界";
+      labels[2].textContent = "红（NG 为主）";
+    } else {
+      labels[0].textContent = "蓝（合格为主）";
+      labels[1].textContent = "灰（接近整体水平）";
+      labels[2].textContent = "红（NG 集中）";
+    }
+  }
+  // 在 plotSankey 里调用: 见出图函数开头
+
+  // ---------- 下载 PNG / SVG ----------
+  function downloadImage(format, filename, w, h){
+    var chart = document.getElementById("chartBox");
+    if(!chart || typeof Plotly === "undefined"){ alert("请先生成桑基图"); return; }
+    var gd = chart.querySelector(".js-plotly-plot");
+    if(!gd){ alert("请先生成桑基图"); return; }
+    Plotly.toImage(gd, { format: format, width: w || 1400, height: h || 800, scale: format === "png" ? 2 : 1 })
+      .then(function(url){
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+      })
+      .catch(function(e){ alert(format.toUpperCase() + " 导出失败: " + e.message); });
+  }
+
+  // ============================================================
+  // CPK 联合分析面板
+  // ============================================================
+  function scopeLabel(){
+    var map = { all: "全量", filter: "当前筛选", ok: "仅 OK", ng: "仅 NG" };
+    return map[state.cpkScope] || "全量";
+  }
+
+  function bindSankeyClick(){
+    var chart = document.getElementById("chartBox");
+    if(!chart || typeof Plotly === "undefined" || !state.cpkResult) return;
+    chart.on("plotly_click", function(event){
+      if(!event || !event.points || !event.points.length) return;
+      var p = event.points[0];
+      var cd = state.cpkResult.nodes.customdata;
+      var info = cd[p.pointNumber];
+      // 点击到链路(p.pointNumber 越界) 或信息不完整 → 忽略
+      if(!info || !Array.isArray(info) || info.length < 4) return;
+      var layerIdx = info[1], col = info[2], val = info[3];
+      if(!col || state.header.indexOf(col) < 0) return;
+
+      highlightLinks(p.pointNumber);
+
+      if(val === "NG" || val === "OK"){
+        // 点击结果层节点 → 只看该结果的子集
+        state.filter = null;
+        state.cpkScope = (val === "NG") ? "ng" : "ok";
+      } else {
+        state.filter = { col: col, value: val, layerIdx: layerIdx };
+        state.cpkScope = "filter";
+      }
+      renderCpkScope();
+      renderFilterBar();
+      scheduleCalcCpk();
+    });
+  }
+
+  // ---------- 路径高亮：点击节点后只保留与该节点直接相连的链路颜色，其余变淡 ----------
+  function highlightLinks(nodeIdx){
+    if(!state.cpkResult || typeof Plotly === "undefined") return;
+    var links = state.cpkResult.links;
+    var newColors = links.color.map(function(c, i){
+      var s = links.source[i], t = links.target[i];
+      return (s === nodeIdx || t === nodeIdx) ? c : "rgba(200,203,212,0.08)";
+    });
+    var gd = document.querySelector(".js-plotly-plot");
+    if(gd) Plotly.restyle(gd, { "link.color": [newColors] }, [0]);
+  }
+
+  function clearHighlight(){
+    if(!state.cpkResult || typeof Plotly === "undefined") return;
+    var gd = document.querySelector(".js-plotly-plot");
+    if(gd) Plotly.restyle(gd, { "link.color": [state.cpkResult.links.color.slice()] }, [0]);
+  }
+
+  function initCpkPanel(){
+    renderCpkScope();
+    renderFilterBar();
+    renderCpkParams();
+    $("cpkParam").onchange = function(){
+      $("cpkLsl").value = ""; $("cpkUsl").value = "";   // 换参数清空旧规格
+      if(state.header.length) scheduleCalcCpk();
+    };
+    $("btnCpk").onclick = function(){ clearTimeout(cpkTimer); calcCpk(); };
+  }
+
+  // 判断列是否为日期/时间类(如 "2026-08-09 09:20:30"), 避免被 parseFloat 误判为数值
+  function isDateLikeCol(col){
+    for(var i=0;i<Math.min(state.rows.length, 50);i++){
+      var v = String(state.rows[i][col]).trim();
+      if(v === "") continue;
+      return /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(v);
+    }
+    return false;
+  }
+
+  function renderCpkParams(){
+    var sel = $("cpkParam");
+    sel.innerHTML = "";
+    var resCol = resultCol();
+    var first = null;
+    // 元数据/时间类列不作为 CPK 分析参数
+    var skipKw = ["时间","时刻","日期","time","date","cdate","编号","码","id","user",
+                  "name","设备","车间","线别","部门","站点","通道","异常","错误",
+                  "code","retest","工单","单据","pcid","rework","返工","复测","操作员"];
+    state.header.forEach(function(c){
+      if(colType(state.header, c) !== "num") return;
+      if(c === resCol) return;   // 结果列不算数值参数
+      if(isDateLikeCol(c)) return;   // 日期列误判为数值
+      var low = String(c).toLowerCase();
+      if(skipKw.some(function(k){ return low.indexOf(k) >= 0; })) return;  // 元数据列
+      var o = document.createElement("option");
+      o.value = c; o.textContent = c;
+      sel.appendChild(o);
+      if(first === null) first = c;
+    });
+    if(sel.options.length === 0){
+      sel.innerHTML = '<option value="">(没有可分析的数值列)</option>';
+      var tip = document.getElementById("cpkNoNumTip");
+      if(!tip){
+        tip = document.createElement("div");
+        tip.id = "cpkNoNumTip";
+        tip.className = "hint";
+        tip.style.color = "var(--mar)";
+        tip.style.marginTop = "4px";
+        sel.parentNode.appendChild(tip);
+      }
+      tip.textContent = "CPK 需要数值列，当前表里没有。若你的测量值被存成文本，请先在 Excel 里转成数值。";
+    } else {
+      var tip2 = document.getElementById("cpkNoNumTip");
+      if(tip2) tip2.remove();
+    }
+  }
+
+  function renderCpkScope(){
+    var el = $("cpkScope");
+    var opts = [
+      ["all", "全量"],
+      ["filter", "当前筛选（点图上节点）"],
+      ["ok", "仅 OK"],
+      ["ng", "仅 NG"],
+    ];
+    el.innerHTML = "";
+    opts.forEach(function(o){
+      var label = document.createElement("label");
+      label.className = "chk";
+      var input = document.createElement("input");
+      input.type = "radio";
+      input.name = "cpkScope";
+      input.value = o[0];
+      input.checked = (state.cpkScope === o[0]);
+      input.addEventListener("change", function(){
+        state.cpkScope = o[0];
+        renderCpkScope();
+        renderFilterBar();
+        scheduleCalcCpk();
+      });
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(" " + o[1]));
+      el.appendChild(label);
+    });
+  }
+
+  function renderFilterBar(){
+    var bar = $("cpkFilterBar");
+    if(state.cpkScope === "filter" && !state.filter){
+      // 选了「当前筛选」但还没点节点
+      bar.style.display = "";
+      bar.innerHTML = '<span class="hint" style="color:var(--mar)">👆 请点击桑基图中的任意节点（如红色型号 / 参数区间 / NG），会自动筛选出该子集。</span>';
+      return;
+    }
+    if(state.filter && state.cpkScope === "filter"){
+      bar.style.display = "";
+      bar.innerHTML =
+        '<span class="chip sel">' + esc(state.filter.col) + ' = ' + esc(state.filter.value) + '</span>' +
+        '<button class="sec" style="padding:3px 12px;font-size:12px;margin:0" id="btnClearFilter">✕ 清除筛选</button>' +
+        '<button class="sec" style="padding:3px 12px;font-size:12px;margin:0 0 0 8px" id="btnExportFilter">📤 导出筛选数据</button>';
+      $("btnClearFilter").addEventListener("click", function(){
+        state.filter = null;
+        state.cpkScope = "all";
+        clearHighlight();
+        renderCpkScope();
+        renderFilterBar();
+        scheduleCalcCpk();
+      });
+      $("btnExportFilter").addEventListener("click", function(){
+        var rows = getScopeRows();
+        if(!rows.length){ alert("当前筛选没有数据可导出"); return; }
+        exportCsv(rows, "sankey_filter.csv");
+      });
+      return;
+    }
+    bar.style.display = "none";
+    bar.innerHTML = "";
+  }
+
+  // ---------- 导出 CSV ----------
+  function exportCsv(rows, filename){
+    var header = state.header;
+    var lines = [header.join(",")];
+    rows.forEach(function(r){
+      var cells = header.map(function(c){
+        var v = r[c];
+        if(v === null || v === undefined) return "";
+        v = String(v);
+        return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      });
+      lines.push(cells.join(","));
+    });
+    var blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  // 点击节点后：按层类型把节点值还原成可匹配的数据子集
+  function applyFilter(rows, col, value, layerIdx){
+    if(layerIdx === 0){
+      // 源层：节点值是完整原始值（如完整 FlowCode）
+      return rows.filter(function(r){ return String(r[col]) === String(value); });
+    }
+    // 参数层：对每行做同样的分箱/合并后匹配
+    var bins = parseInt($("selBins").value, 10) || 5;
+    var colVals = rows.map(function(r){
+      return (r[col] === null || r[col] === undefined) ? "" : r[col];
+    });
+    var prepared = SankeyCore.prepareLayer(colVals, bins, 30);
+    var out = [];
+    for(var i = 0; i < rows.length; i++){
+      if(String(prepared[i]) === String(value)) out.push(rows[i]);
+    }
+    return out;
+  }
+
+  function getScopeRows(){
+    var rows = state.rows;
+    if(state.cpkScope === "filter"){
+      if(!state.filter) return [];   // 选了「当前筛选」但还没点节点
+      return applyFilter(rows, state.filter.col, state.filter.value, state.filter.layerIdx);
+    }
+    if(state.cpkScope === "ok" || state.cpkScope === "ng"){
+      var resCol = resultCol();
+      var ngSet = {};
+      $("ngList").querySelectorAll("input[type=checkbox]").forEach(function(b){
+        if(b.checked) ngSet[String(b.value).trim().toUpperCase()] = true;
+      });
+      return rows.filter(function(r){
+        var key = String(r[resCol] || "").trim().toUpperCase();
+        var isNg = !!ngSet[key];
+        return state.cpkScope === "ng" ? isNg : !isNg;
+      });
+    }
+    return rows;
+  }
+
+  function numericValues(rows, col){
+    var out = [];
+    rows.forEach(function(r){
+      var v = parseFloat(String(r[col]).replace(/,/g, ""));
+      if(isFinite(v)) out.push(v);
+    });
+    return out;
+  }
+
+  function fmt(x, d){
+    if(x === null || x === undefined || !isFinite(x)) return "—";
+    return Number(x).toFixed(d === undefined ? 4 : d);
+  }
+
+  function calcCpk(){
+    var param = $("cpkParam").value;
+    if(!param || !state.header.length){
+      $("cpkResult").innerHTML = '<div class="empty-tip">当前数据中没有可分析的数值列，无法计算 CPK。</div>';
+      return;
+    }
+    var lslRaw = $("cpkLsl").value.trim();
+    var uslRaw = $("cpkUsl").value.trim();
+
+    // 规格限合法性校验
+    var lslBad = lslRaw !== "" && !isFinite(parseFloat(lslRaw));
+    var uslBad = uslRaw !== "" && !isFinite(parseFloat(uslRaw));
+    if(lslBad || uslBad){
+      $("cpkResult").innerHTML = '<div class="empty-tip">⚠ LSL / USL 需要填数字（可留空）。已填的规格限格式不正确，请修改。</div>';
+      return;
+    }
+
+    var allVals = numericValues(state.rows, param);
+    if(allVals.length < 2){ $("cpkResult").innerHTML = '<div class="empty-tip">该参数有效数值不足 2 个，无法计算 CPK。</div>'; return; }
+
+    var curRows = getScopeRows();
+    if(state.cpkScope === "filter" && (!state.filter || curRows.length === 0)){
+      $("cpkResult").innerHTML =
+        '<div class="empty-tip">当前选择了「当前筛选」范围，但还没有点击图上的节点。<br>👉 点击桑基图中的任意节点（如红色型号 / 参数区间），即可自动筛选出该子集。</div>';
+      return;
+    }
+
+    // 规格限: 用户未填 → 用全量 μ±3σ 占位
+    var base = SankeyCore.calcCpK(allVals, null, null);
+    var lsl = lslRaw !== "" ? parseFloat(lslRaw) : (base.mean - 3 * base.sd);
+    var usl = uslRaw !== "" ? parseFloat(uslRaw) : (base.mean + 3 * base.sd);
+    var lslGiven = lslRaw !== "", uslGiven = uslRaw !== "";
+
+    var curVals = numericValues(curRows, param);
+    var okVals = numericValues(getOkRows(), param);
+    var ngVals = numericValues(getNgRows(), param);
+
+    var cur = SankeyCore.calcCpK(curVals, lsl, usl);
+    var all = SankeyCore.calcCpK(allVals, lsl, usl);
+    var ok = SankeyCore.calcCpK(okVals, lsl, usl);
+    var ng = SankeyCore.calcCpK(ngVals, lsl, usl);
+
+    renderCpkResult(cur, all, ok, ng, lsl, usl, param, lslGiven, uslGiven, curVals);
+  }
+
+  // CPK 防抖: 点击节点/切换范围等自动触发时合并连续操作, 避免频繁重绘
+  var cpkTimer = null;
+  function scheduleCalcCpk(){
+    clearTimeout(cpkTimer);
+    cpkTimer = setTimeout(function(){
+      scheduleCalcCpk();
+    }, 250);
+  }
+
+  function getOkRows(){
+    var resCol = resultCol();
+    var ngSet = {};
+    $("ngList").querySelectorAll("input[type=checkbox]").forEach(function(b){
+      if(b.checked) ngSet[String(b.value).trim().toUpperCase()] = true;
+    });
+    return state.rows.filter(function(r){
+      var key = String(r[resCol] || "").trim().toUpperCase();
+      return !ngSet[key];
+    });
+  }
+  function getNgRows(){
+    var resCol = resultCol();
+    var ngSet = {};
+    $("ngList").querySelectorAll("input[type=checkbox]").forEach(function(b){
+      if(b.checked) ngSet[String(b.value).trim().toUpperCase()] = true;
+    });
+    return state.rows.filter(function(r){
+      var key = String(r[resCol] || "").trim().toUpperCase();
+      return ngSet[key];
+    });
+  }
+
+  function renderCpkResult(cur, all, ok, ng, lsl, usl, param, lslGiven, uslGiven, curVals){
+    var el = $("cpkResult");
+    var v = SankeyCore.verdictForCpk(cur.cpk);
+    var specNote = (!lslGiven || !uslGiven)
+      ? '<div class="hint" style="color:var(--mar)">⚠ 规格限为试算占位值（μ±3σ），请填写真实 LSL / USL 后再判定。</div>'
+      : "";
+
+    var verdictText =
+      (v.level === "A") ? "过程能力优秀，波动小、余量大 —— 该子集参数的偏移/发散**不太可能是 NG 根因**；若 NG 率仍高，请转向批次/时段/操作等因素排查。" :
+      (v.level === "B") ? "过程能力合格。若该子集 NG 率仍偏高，说明问题可能另有其因，建议查批次/时段。" :
+      (v.level === "C") ? "过程能力边缘，存在超规风险 —— 值得重点排查该参数（若这正是桑基图红色路径子集，则相互印证）。" :
+      "过程能力不足，超规风险高 —— 该参数很可能是系统性根因（尤其当它正是桑基图红色路径子集时）。";
+
+    var cards = [
+      ["样本数 n", cur.n, 0],
+      ["均值 μ", cur.mean, 4],
+      ["标准差 σ", cur.sd, 5],
+      ["Cp", cur.cp, 3],
+      ["Cpk", cur.cpk, 3],
+    ];
+
+    var html = '';
+    html += '<div class="verdict" style="background:'+v.color+'14;border-color:'+v.color+'55;color:'+v.color+'">';
+    html += '<span class="badge" style="background:'+v.color+'">'+v.level+' 级</span>';
+    html += '当前范围「'+scopeLabel()+'」· '+esc(param)+' 的 Cpk = <b>'+fmt(cur.cpk,3)+'</b>（'+v.text+'）';
+    html += '</div>';
+    html += '<div class="hint" style="margin-top:2px">'+verdictText+'</div>';
+
+    html += '<div class="metrics">';
+    cards.forEach(function(c){
+      html += '<div class="metric"><div class="k">'+c[0]+'</div><div class="v">'+fmt(c[1], c[2])+'</div></div>';
+    });
+    html += '<div class="metric"><div class="k">LSL</div><div class="v">'+fmt(lsl,4)+'</div></div>';
+    html += '<div class="metric"><div class="k">USL</div><div class="v">'+fmt(usl,4)+'</div></div>';
+    html += '</div>';
+    html += specNote;
+
+    html += '<div class="section-title">分组能力对比（同一规格限下）</div>';
+    html += '<div class="scroll"><table class="cmp-table"><thead><tr><th>数据范围</th><th>n</th><th>μ</th><th>σ</th><th>Cp</th><th>Cpk</th><th>判定</th></tr></thead><tbody>';
+    function cmpRow(label, s, isCur){
+      var vv = SankeyCore.verdictForCpk(s.cpk);
+      return '<tr'+(isCur?' style="background:#eaf3fb"':'')+'><td><b>'+label+'</b>'+(isCur?' 🎯':'')+'</td>'+
+        '<td>'+fmt(s.n,0)+'</td><td>'+fmt(s.mean,4)+'</td><td>'+fmt(s.sd,5)+'</td>'+
+        '<td>'+fmt(s.cp,3)+'</td><td><b>'+fmt(s.cpk,3)+'</b></td>'+
+        '<td><span style="color:'+vv.color+'">'+vv.level+' · '+vv.text+'</span></td></tr>';
+    }
+    html += cmpRow("全量", all, false);
+    html += cmpRow(scopeLabel(), cur, true);
+    html += cmpRow("仅 OK", ok, false);
+    html += cmpRow("仅 NG", ng, false);
+    html += '</tbody></table></div>';
+
+    html += '<div class="section-title">样本分布（直方图 + 正态拟合）</div>';
+    html += '<div id="cpkChart" class="cpk-chart"></div>';
+
+    html += '<div class="hint" style="margin-top:8px">' +
+      '📌 联合判定：若「当前筛选」Cpk 明显低于「全量」且为 C/D 级，说明红色路径的参数确实偏移/发散，是系统性根因；' +
+      '若 Cpk 正常但 NG 率高，说明参数没问题，NG 另有其因（查批次/时段/操作员）。</div>';
+
+    html += '<div class="hint" style="margin-top:4px;color:var(--muted)">' +
+      'ℹ 方法说明：σ 用样本标准差（个体数据近似），Cpk 为常规双侧/单侧定义（Cp=(USL-LSL)/(6σ)）。' +
+      '若样本数太少或数据明显非正态，请谨慎解读 Cpk，优先结合直方图观察。</div>';
+
+    el.innerHTML = html;
+
+    // 画直方图 (Plotly 懒加载, 确保已就绪)
+    var chartDiv = document.getElementById("cpkChart");
+    if(chartDiv){
+      if(curVals.length < 2){
+        chartDiv.innerHTML = '<div class="empty-tip">数据不足，无法画直方图</div>';
+      } else if(typeof Plotly !== "undefined"){
+        renderCpkHistogram(chartDiv, curVals, cur.mean, cur.sd, lsl, usl);
+      } else {
+        chartDiv.innerHTML = '<div class="empty-tip">正在加载绘图引擎…</div>';
+        ensurePlotly().then(function(){
+          var d2 = document.getElementById("cpkChart");
+          if(d2 && curVals.length >= 2) renderCpkHistogram(d2, curVals, cur.mean, cur.sd, lsl, usl);
+        }).catch(function(){});
+      }
+    }
+  }
+
+  function renderCpkHistogram(div, values, mean, sd, lsl, usl){
+    var lo = mean - 4 * sd, hi = mean + 4 * sd;
+    if(!(hi > lo)) { hi = mean + sd; lo = mean - sd; }
+    var xs = [], ys = [];
+    for(var i = 0; i <= 120; i++){
+      var x = lo + (hi - lo) * i / 120;
+      xs.push(Number(x.toFixed(6)));
+      ys.push(Number((1 / (sd * Math.sqrt(2 * Math.PI)) * Math.exp(-((x - mean) * (x - mean)) / (2 * sd * sd))).toFixed(7)));
+    }
+    var traces = [
+      { type: "histogram", x: values, name: "样本分布", opacity: 0.55,
+        marker: { color: "#2f6db5", line: { width: 1, color: "#fff" } } },
+      { type: "scatter", mode: "lines", x: xs, y: ys, name: "正态拟合",
+        line: { color: "#e4572e", width: 2 } },
+    ];
+    var shapes = [];
+    if(lsl !== null && lsl !== undefined && isFinite(lsl))
+      shapes.push({ type: "line", x0: lsl, x1: lsl, yref: "paper", y0: 0, y1: 1,
+        line: { color: "#2e8b57", dash: "dash", width: 1.5 } });
+    if(usl !== null && usl !== undefined && isFinite(usl))
+      shapes.push({ type: "line", x0: usl, x1: usl, yref: "paper", y0: 0, y1: 1,
+        line: { color: "#d9822b", dash: "dash", width: 1.5 } });
+    Plotly.newPlot(div, traces, {
+      height: 260,
+      margin: { l: 55, r: 12, t: 28, b: 35 },
+      font: { family: "Microsoft YaHei", size: 11 },
+      barmode: "overlay",
+      shapes: shapes,
+      showlegend: true,
+      legend: { orientation: "h", x: 0, y: 1.15 },
+      paper_bgcolor: "#fff", plot_bgcolor: "#fff",
+    }, { displaylogo: false, responsive: true });
+  }
+
+  // ---------- 事件绑定 ----------
+  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+  $("btnLoad").addEventListener("click", function(){
+    var parsed = textToRows($("dataArea").value);
+    if(parsed.header.length) loadData(parsed.header, parsed.rows, "粘贴数据");
+    else setInfo("未能识别表头，请确认首行为列名（用逗号/制表符分隔）", "warn");
+  });
+
+  $("btnSample").addEventListener("click", function(){
+    if(typeof DEMO_CSV === "undefined"){ setInfo("示例数据未内置", "warn"); return; }
+    var parsed = textToRows(DEMO_CSV);
+    loadData(parsed.header, parsed.rows, "示例数据 demo");
+    $("dataArea").value = DEMO_CSV.slice(0, 600) + "\n…（共 800 行，已省略）";
+  });
+
+  $("btnClear").addEventListener("click", function(){
+    $("dataArea").value = "";
+    state.header = []; state.rows = [];
+    state.filter = null; state.cpkScope = "all"; state.cpkResult = null;
+    $("panelSel").style.display = "none";
+    $("chartArea").innerHTML = '<div class="empty-tip">已清空。加载新数据后重新选择。</div>';
+    $("statLine").innerHTML = "";
+    $("cpkResult").innerHTML = "";
+    $("cpkFilterBar").style.display = "none";
+    $("colorbar").style.display = "none";
+    setInfo("已清空");
+  });
+
+  // 拖拽
+  var dz = $("dropzone");
+  var fileInput = $("fileInput");
+  dz.addEventListener("click", function(){ fileInput.click(); });
+  fileInput.addEventListener("change", function(){ if(fileInput.files.length) readFile(fileInput.files[0]); fileInput.value=""; });
+
+  var hint = $("dropHint");
+  var dragCounter = 0;
+  document.addEventListener("dragenter", function(e){ e.preventDefault(); dragCounter++; hint.classList.add("drag"); });
+  document.addEventListener("dragover", function(e){ e.preventDefault(); });
+  document.addEventListener("dragleave", function(e){ e.preventDefault(); dragCounter--; if(dragCounter<=0){ dragCounter=0; hint.classList.remove("drag"); } });
+  document.addEventListener("drop", function(e){
+    e.preventDefault();
+    dragCounter = 0;
+    hint.classList.remove("drag");
+    if(e.dataTransfer.files.length) readFile(e.dataTransfer.files[0]);
+  });
+})();
+</script>
+</body>
+</html>
