@@ -348,9 +348,13 @@
     renderHeaderTable();
     renderSelects();
     autoRecommend();
-    restoreLastConfig();   // 尝试恢复上次保存的配置(列名匹配才生效)
+    var hadCfg = restoreLastConfig();   // 尝试恢复上次保存的配置(列名匹配才生效)
     renderParams();
     initCpkPanel();
+    // 无记忆配置时: 渲染完成后自动智能推荐参数列(异步, 不阻塞首屏)
+    if(!hadCfg){
+      setTimeout(function(){ recommendParams(); }, 50);
+    }
   }
 
   // ---------- 记忆上次配置 (localStorage) ----------
@@ -372,9 +376,9 @@
   function restoreLastConfig(){
     try{
       var raw = localStorage.getItem(CFG_KEY);
-      if(!raw) return;
+      if(!raw) return false;
       var cfg = JSON.parse(raw);
-      if(!cfg || !state.header.length) return;
+      if(!cfg || !state.header.length) return false;
       // 列名必须存在于当前数据才恢复, 避免跨表串配置
       if(cfg.source && state.header.indexOf(cfg.source) >= 0) $("selSource").value = cfg.source;
       if(cfg.result && state.header.indexOf(cfg.result) >= 0) $("selResult").value = cfg.result;
@@ -402,7 +406,8 @@
       }
       warnIfHighCardinalitySource();
       setInfo("已恢复上次的源列 / 参数 / 配色设置", "ok");
-    }catch(e){ /* 配置损坏则忽略 */ }
+      return true;
+    }catch(e){ /* 配置损坏则忽略 */ return false; }
   }
 
   function setInfo(msg, cls){
@@ -520,8 +525,42 @@
     });
     var note = document.createElement("div");
     note.className = "hint";
-    note.textContent = "请勾选要分析的工序参数列（默认全部未勾选，可多选）。";
+    note.innerHTML = '💡 参数多不知选哪些？<button class="sec" style="padding:2px 10px;font-size:12px;margin:0 4px" id="btnRecommend">✨ 智能推荐</button>' +
+      '<button class="sec" style="padding:2px 10px;font-size:12px;margin:0" id="btnClearParams">清空</button>' +
+      '<span style="margin-left:4px">自动分析 NG 集中在哪些参数。</span>';
     list.appendChild(note);
+    $("btnRecommend").addEventListener("click", recommendParams);
+    $("btnClearParams").addEventListener("click", function(){
+      list.querySelectorAll("input[type=checkbox]").forEach(function(b){ b.checked = false; });
+      setInfo("已清空全部参数勾选", "ok");
+    });
+  }
+
+  // ---------- 智能推荐参数列: 自动分析 NG 集中在哪 ----------
+  // 用信息增益给每个候选参数列打分(区分 NG/OK 的能力), 自动勾选 Top-N。
+  // 计算在 sankey_core.scoreColumns 里完成, 大表自动采样最多 3000 行, 毫秒级不卡页面。
+  function recommendParams(){
+    var cands = paramCandidates();
+    if(!cands.length){ setInfo("没有可选的参数列", "warn"); return; }
+    var ngVals = [];
+    $("ngList").querySelectorAll("input[type=checkbox]:checked").forEach(function(b){ ngVals.push(b.value); });
+    if(!ngVals.length){ setInfo("请先在「哪些值算不良」里勾选 NG 值", "warn"); return; }
+    var bins = parseInt($("selBins").value, 10) || 5;
+    var scores = SankeyCore.scoreColumns(state.rows, state.header, sourceCol(), resultCol(), ngVals, bins);
+    // 只对候选列打分, 排除元数据列(-1)和无区分度(0)的
+    var ranked = cands
+      .map(function(c){ return { col: c, s: (scores[c] === undefined) ? 0 : scores[c] }; })
+      .filter(function(e){ return e.s > 0; })
+      .sort(function(a, b){ return b.s - a.s; });
+    var autoCount = Math.min(5, ranked.length);
+    if(autoCount === 0){ setInfo("没有找到能区分 NG 的参数列（可能数据本身 NG 极少或每列都无关）", "warn"); return; }
+    var top = ranked.slice(0, autoCount);
+    // 清空旧勾选, 勾选推荐列
+    document.querySelectorAll("#paramList input[type=checkbox]").forEach(function(b){ b.checked = false; });
+    document.querySelectorAll("#paramList input[type=checkbox]").forEach(function(b){
+      if(top.some(function(e){ return e.col === b.value; })) b.checked = true;
+    });
+    setInfo("已按「NG 集中度」推荐勾选 " + autoCount + " 列: " + top.map(function(e){ return e.col; }).join(" / ") + "（可手动增删）", "ok");
   }
 
   function renderNg(){
