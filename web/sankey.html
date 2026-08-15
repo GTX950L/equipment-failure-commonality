@@ -15,19 +15,30 @@
   *{box-sizing:border-box}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Helvetica,Arial,sans-serif;
        background:var(--bg);color:var(--text);line-height:1.55;font-size:14px}
-  header{padding:18px 24px;background:linear-gradient(95deg,#1f2328,#32383f);color:#fff;
-         box-shadow:0 1px 4px rgba(0,0,0,.15)}
-  header h1{margin:0;font-size:19px;font-weight:650;letter-spacing:.3px}
-  header p{margin:5px 0 0;font-size:12.5px;color:#b9c0c8}
+  header{padding:18px 24px;background:linear-gradient(120deg,#16273d 0%,#1e3a5f 46%,#24507e 100%);color:#fff;
+         box-shadow:0 2px 10px rgba(16,32,64,.25);position:relative;overflow:hidden}
+  header::after{content:'';position:absolute;right:-60px;top:-80px;width:260px;height:260px;
+         background:radial-gradient(circle,rgba(255,255,255,.08),transparent 70%);border-radius:50%;pointer-events:none}
+  header>*{position:relative;z-index:1}
+  .head-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+  header h1{margin:0;font-size:19px;font-weight:650;letter-spacing:.3px;text-shadow:0 1px 3px rgba(0,0,0,.25)}
+  header p{margin:5px 0 0;font-size:12.5px;color:#b8c9dc}
+  .head-btn{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.32);
+            border-radius:10px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer;
+            backdrop-filter:blur(4px);transition:background .15s,transform .12s,box-shadow .15s;white-space:nowrap;
+            box-shadow:0 2px 8px rgba(0,0,0,.18);margin:0}
+  .head-btn:hover{background:rgba(255,255,255,.28);transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.26)}
+  .head-btn:active{transform:translateY(0)}
   .wrap{display:flex;flex-wrap:wrap;gap:18px;padding:18px 24px;align-items:flex-start}
-  .panel{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px;
-         flex:1 1 330px;min-width:300px;box-shadow:0 1px 3px rgba(27,31,36,.04)}
-  .panel h2{margin:0 0 12px;font-size:14px;font-weight:650;color:#32383f;
+  .panel{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;
+         flex:1 1 330px;min-width:300px;box-shadow:0 1px 4px rgba(27,31,36,.06);transition:box-shadow .18s}
+  .panel:hover{box-shadow:0 4px 14px rgba(27,31,36,.08)}
+  .panel h2{margin:0 0 12px;font-size:14px;font-weight:650;color:#24344d;
             border-bottom:2px solid #eef1f4;padding-bottom:8px;display:flex;align-items:center;gap:7px}
-  .step{background:#32383f;color:#fff;border-radius:50%;width:20px;height:20px;font-size:11px;
-        display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .step{background:linear-gradient(135deg,#3d83c9,#24507e);color:#fff;border-radius:50%;width:20px;height:20px;font-size:11px;
+        display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;box-shadow:0 1px 3px rgba(36,80,126,.3)}
   textarea{width:100%;height:160px;font-family:Consolas,Menlo,"Courier New",monospace;font-size:12.5px;
-           border:1px solid var(--border);border-radius:7px;padding:9px;resize:vertical;color:#1f2328}
+           border:1px solid var(--border);border-radius:8px;padding:9px;resize:vertical;color:#1f2328}
   textarea:focus{outline:none;border-color:var(--c-primary);box-shadow:0 0 0 3px rgba(47,109,181,.12)}
   .row{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0}
   .row label{flex:1 1 130px;font-size:12.5px;color:var(--muted);font-weight:550}
@@ -39,12 +50,14 @@
   select:focus{outline:none;border-color:var(--c-primary);box-shadow:0 0 0 3px rgba(47,109,181,.12)}
   .chk{font-size:13px;margin:5px 0;color:#32383f;display:flex;align-items:center;gap:7px;cursor:pointer}
   .chk input{width:15px;height:15px;accent-color:var(--c-primary)}
-  button{background:var(--c-primary);color:#fff;border:0;border-radius:7px;padding:9px 16px;font-size:13px;
-         font-weight:600;cursor:pointer;margin-right:8px;transition:filter .15s}
-  button:hover{filter:brightness(1.08)}
-  button.sec{background:#eef1f4;color:#32383f}
-  button.sec:hover{background:#e2e7ec}
-  .dropzone{border:2px dashed var(--border);border-radius:9px;padding:18px;text-align:center;color:var(--muted);
+  button{background:linear-gradient(135deg,#3d83c9,#24507e);color:#fff;border:0;border-radius:9px;padding:9px 16px;font-size:13px;
+         font-weight:600;cursor:pointer;margin-right:8px;transition:filter .15s,transform .12s,box-shadow .15s;
+         box-shadow:0 2px 6px rgba(36,80,126,.22)}
+  button:hover{filter:brightness(1.08);transform:translateY(-1px);box-shadow:0 4px 10px rgba(36,80,126,.3)}
+  button:active{transform:translateY(0)}
+  button.sec{background:#eef1f4;color:#32383f;box-shadow:0 1px 2px rgba(16,32,64,.06)}
+  button.sec:hover{background:#e2e7ec;box-shadow:0 2px 6px rgba(16,32,64,.1)}
+  .dropzone{border:2px dashed var(--border);border-radius:10px;padding:18px;text-align:center;color:var(--muted);
             font-size:13px;cursor:pointer;transition:.15s;margin-top:10px}
   .dropzone:hover,.dropzone.over{border-color:var(--c-primary);background:#f0f6fd;color:#2f6db5}
   .hint{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5}
@@ -90,12 +103,61 @@
   .colorbar-wrap{margin-top:8px;padding:8px 12px;background:#fff;border:1px solid var(--border);border-radius:8px}
   .colorbar{height:10px;border-radius:5px;background:linear-gradient(to right,#2f6db5 0%,#8a94a0 50%,#e4572e 100%)}
   .colorbar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px}
+
+  /* ---- 模态框: 更新记录 / 术语百科 (参照 cpk-jmp-studio 风格) ---- */
+  #clogOverlay{position:fixed;inset:0;background:rgba(16,32,64,.52);z-index:1000;
+               display:none;align-items:flex-start;justify-content:center;padding:28px 16px;
+               overflow-y:auto;backdrop-filter:blur(4px)}
+  #clogOverlay.open{display:flex;animation:fadeIn .18s ease}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  .gloss-box{background:var(--card);border-radius:16px;max-width:860px;width:100%;
+             box-shadow:0 12px 40px rgba(16,32,64,.3);overflow:hidden;animation:slideUp .22s ease}
+  @keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  .gloss-head{position:relative;overflow:hidden;background:linear-gradient(120deg,#16273d 0%,#1e3a5f 46%,#24507e 100%);
+              color:#fff;padding:16px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:5}
+  .gloss-head::after{content:'';position:absolute;right:-50px;top:-60px;width:220px;height:220px;
+              background:radial-gradient(circle,rgba(255,255,255,.10),transparent 70%);border-radius:50%;pointer-events:none}
+  .gloss-head>*{position:relative;z-index:1}
+  .gloss-head h2{margin:0;font-size:16px;font-weight:700;flex:1 1 100%;letter-spacing:.3px;
+              text-shadow:0 1px 3px rgba(0,0,0,.25)}
+  .gloss-close{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.32);color:#fff;
+               border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;
+               transition:background .15s,transform .12s}
+  .gloss-close:hover{background:rgba(255,255,255,.3);transform:translateY(-1px)}
+  .gloss-body{padding:18px 20px;max-height:66vh;overflow-y:auto}
+  .gloss-count{font-size:12px;color:var(--muted);margin:0 0 12px;display:flex;align-items:center;gap:6px}
+  .gloss-count::before{content:'';width:4px;height:12px;border-radius:2px;background:linear-gradient(180deg,#3d83c9,#24507e)}
+  .clog-ver{border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden;
+            background:#fff;box-shadow:0 1px 3px rgba(16,32,64,.05)}
+  .clog-ver-head{display:flex;align-items:center;gap:12px;padding:11px 16px;
+                 background:linear-gradient(180deg,#fbfcfe,#f4f8fc);border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .clog-ver-head .v{font-family:Consolas,Menlo,monospace;font-weight:800;font-size:15px;color:#1e4d8c;
+                    background:#fff;border:1px solid #cfe0f2;padding:2px 11px;border-radius:7px;
+                    box-shadow:0 1px 2px rgba(36,80,126,.12)}
+  .clog-ver-head .d{font-size:12px;color:#64748b;font-weight:600}
+  .clog-ver-head .tag{font-size:10.5px;font-weight:700;border-radius:20px;padding:3px 10px;flex:0 0 auto}
+  .tag-new{background:#eaf6ee;color:#1a7f37;border:1px solid #bfe5cb}
+  .tag-feat{background:#eaf3fb;color:#0a4f9c;border:1px solid #bfd9f0}
+  .tag-fix{background:#fff6e9;color:#c06a00;border:1px solid #f0d9b8}
+  .clog-ver-body{padding:10px 16px 12px}
+  .clog-ver-body ul{margin:0;padding-left:18px;display:grid;gap:4px}
+  .clog-ver-body li{font-size:12.8px;line-height:1.6;color:#1f2937}
+  .clog-ver-body li::marker{color:#2f6db5}
+  .clog-ver-body .sub{font-size:11.5px;color:#64748b;margin-top:5px;line-height:1.5}
+  @media(max-width:640px){.gloss-body{max-height:74vh}}
 </style>
 </head>
 <body>
 <header>
-  <h1>🔧 设备问题共性分析 · 桑基图</h1>
-  <p>上传数据表 → 自动识别表头 → 打钩选列 → 出图 · 离线版 · 无需安装任何软件 / 数据不出本机</p>
+  <div class="head-row">
+    <div>
+      <h1>🔧 设备问题共性分析 · 桑基图</h1>
+      <p>上传数据表 → 自动识别表头 → 打钩选列 → 出图 · 离线版 · 无需安装任何软件 / 数据不出本机</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button id="btnChangelog" class="head-btn">📋 更新记录</button>
+    </div>
+  </div>
 </header>
 
 <div id="dropHint">📂 松开鼠标，导入数据文件（支持 .csv / .xlsx / .xls）</div>
@@ -1578,6 +1640,65 @@
     if(e.dataTransfer.files.length) readFile(e.dataTransfer.files[0]);
   });
 })();
+</script>
+
+<!-- ===== 更新记录模态框 (参照 cpk-jmp-studio 风格) ===== -->
+<div id="clogOverlay">
+  <div class="gloss-box" role="dialog" aria-label="更新记录" style="max-width:780px">
+    <div class="gloss-head" style="justify-content:space-between">
+      <h2 style="flex:0 1 auto">📋 更新记录 · 版本历史</h2>
+      <button class="gloss-close" id="clogClose">✕ 关闭</button>
+    </div>
+    <div class="gloss-body" style="padding-top:14px">
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.1.0</b> · 最近更新 2026-08-16</p>
+      <div id="clogList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============ 更新记录 ============ */
+// 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
+const CHANGELOG=[
+  {ver:'v3.1.0',date:'2026-08-16',tag:'fix',tagTxt:'修复',
+   items:['修复链路染色严重 Bug：原用左侧节点 NG 轴值，流入 FAIL / PASS 的同源链路颜色相同会误导分析；改为按目标节点（下游 NG 浓度）染色，流入 FAIL 红 / 流入 PASS 蓝','分箱升级为 1%/99% 分位截尾（Winsorize），偏态/离群数据不再拉宽主区间；超出范围的值归入 <lo / >hi 异常桶','新增「智能推荐参数列」：加载后自动按信息增益分析 NG 集中度并勾选 Top-5，大表采样 3000 行毫秒级完成','新增「📋 更新记录」按钮（参照 cpk-jmp-studio 风格），头部与模态框视觉全面升级'],
+   sub:'本版为 2026-08-16 全量审查修复：发现并修复链路染色计算 Bug + 分箱科学性 Bug，并补齐智能推荐与版本历史。'},
+  {ver:'v3.0.0',date:'2026-08-15',tag:'feat',tagTxt:'里程碑',
+   items:['五项体验优化：源列智能提醒（唯一值>50% 时提示不宜做源列）、localStorage 记忆上次配置、TopN 上限 20→50、「其他」节点 NG 超基线预警、点击「其他」展开被合并明细并可勾选多个单独分析','示例数据替换为 9610 线真实导出前 800 行（33 列完整表头，PASS/FAIL）','源列 Top-N 改为按 NG 数优先排序：单独显示的条码是最有问题的，而非随机前几行','参数列默认全部不打勾 + 移除「★ 重要性」标注，由「智能推荐」接管'],
+   sub:'围绕"追 NG 根因"场景重构：解决条码当源列出巨型「其他」节点、NG 藏在合并节点里等痛点。'},
+  {ver:'v2.2.0',date:'2026-08-15',tag:'fix',tagTxt:'修复',
+   items:['修复桑基图点击高亮视觉对比度：高亮路径 alpha 提至 0.95 实心显示，非高亮路径 0.03 几乎隐形','修复点击高亮完整路径：BFS 向上游/下游扩散，经过节点的完整链路保持颜色','点击同一节点再次取消高亮（toggle）','修复链路点击误判为节点点击的 Bug'],
+   sub:'点击交互体验全面修复，截图对比验证高亮效果明显。'},
+  {ver:'v2.1.0',date:'2026-08-15',tag:'fix',tagTxt:'修复',
+   items:['修复绘图引擎加载：多来源回退（本地→官方CDN→jsDelivr→unpkg）+ 单源 20s 超时，加载失败时图表区显示明确错误','修复生成桑基图时无反馈：加载 Plotly 引擎期间图表区显示「⏳ 正在加载绘图引擎」提示','修复 demo_data.js 换行转义 Bug：剥离 CR、改用字面量 \\n，修复浏览器解析报错导致示例数据消失'],
+   sub:'解决"点出图很久没反应"与"示例数据消失"两大加载问题。'},
+  {ver:'v2.0.0',date:'2026-08-15',tag:'feat',tagTxt:'里程碑',
+   items:['示例数据替换为 9610 线真实导出，demo 列名 肘存量 → 封存量 与实际表头一致','新增 FACA + CPK 联合分析面板：点击节点自动对该子集做过程能力分析','配色模式可切换（科学渐变 / JMP 红蓝二色）、SVG/PNG 导出','懒加载 Plotly/XLSX：页面首屏 429ms→20ms','修复整数档位列不再分箱、修复桑基图环状结构（节点索引用层+值复合键）'],
+   sub:'v2.0.0 起为纯前端单文件实现，零安装零依赖，双击即用。'},
+  {ver:'v1.0.0',date:'2026-08-14',tag:'new',tagTxt:'首发',
+   items:['制造业设备问题共性分析 · 桑基图工具首发（Web 离线版）','自动识别表头 / 源列 / 结果列 / 不良值','节点点击高亮 + 路径筛选 + 数据导出','初始曾含 Python 版（app.py/src），已移除聚焦纯网页'],
+   sub:'项目的起点：用桑基图回答"NG 集中在哪道工序、哪个参数组合"。'}
+];
+function renderChangelog(){
+  document.getElementById('clogList').innerHTML=CHANGELOG.map(v=>`
+    <div class="clog-ver">
+      <div class="clog-ver-head">
+        <span class="v">${v.ver}</span>
+        <span class="d">📅 ${v.date}</span>
+        <span class="tag ${v.tag}">${v.tagTxt}</span>
+      </div>
+      <div class="clog-ver-body">
+        <ul>${v.items.map(i=>`<li>${i}</li>`).join('')}</ul>
+        ${v.sub?`<div class="sub">💡 ${v.sub}</div>`:''}
+      </div>
+    </div>`).join('');
+}
+function openChangelog(){document.getElementById('clogOverlay').classList.add('open');renderChangelog();}
+function closeChangelog(){document.getElementById('clogOverlay').classList.remove('open');}
+document.getElementById('btnChangelog').onclick=openChangelog;
+document.getElementById('clogClose').onclick=closeChangelog;
+document.getElementById('clogOverlay').addEventListener('click',e=>{if(e.target.id==='clogOverlay')closeChangelog();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeChangelog();});
 </script>
 </body>
 </html>
