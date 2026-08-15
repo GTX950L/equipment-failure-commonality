@@ -636,9 +636,12 @@
   }
   $("btnPlot").addEventListener("click", function(){
     if(!state.header.length){ setInfo("请先加载数据", "warn"); return; }
-    setInfo("正在加载绘图引擎（首次约 1~3 秒）…");
+    // 在图表区域显示加载状态（首次需加载 Plotly 引擎, 4.5MB 本地库/回退 CDN）
+    $("chartArea").innerHTML =
+      '<div class="empty-tip" style="padding:48px 20px">' +
+      '<div style="font-size:26px;margin-bottom:14px">⏳</div>' +
+      '正在加载绘图引擎…（首次约 1~3 秒，请稍候）</div>';
     ensurePlotly().then(function(){
-      setInfo("");
       plotSankey();
     }).catch(function(e){ setInfo(e.message, "warn"); });
   });
