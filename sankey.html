@@ -213,6 +213,7 @@
     cpkScope: "all",       // all | filter | ok | ng
     cpkResult: null,       // 最近一次 buildSankey 结果（含节点 customdata）
     colorMode: "gradient", // gradient 科学渐变 | binary JMP 二色
+    hlNode: -1,            // 当前高亮的节点索引, -1 = 未高亮
   };
 
   // ---------- 懒加载 Plotly / XLSX (页面秒开的关键) ----------
@@ -643,6 +644,7 @@
     $("chartArea").innerHTML = '<div id="chartBox"></div>';
     Plotly.newPlot("chartBox", data, layout, { responsive: true, displaylogo: false });
     state.cpkResult = result;
+    state.hlNode = -1;   // 新图重置高亮状态
     $("colorbar").style.display = "";
     bindSankeyClick();
 
@@ -703,6 +705,7 @@
     });
     if(!result) return;
     state.cpkResult = result;
+    state.hlNode = -1;   // 重绘颜色后清掉旧高亮
     syncColorbarLabel();
     var gd = document.querySelector(".js-plotly-plot");
     if(gd){
@@ -774,13 +777,26 @@
       if(!event || !event.points || !event.points.length) return;
       var p = event.points[0];
       var cd = state.cpkResult.nodes.customdata;
-      var info = cd[p.pointNumber];
-      // 点击到链路(p.pointNumber 越界) 或信息不完整 → 忽略
+      // Plotly sankey 点击事件里, 节点点击与链路点击混在同一事件:
+      // 节点: p.pointNumber 是节点索引, 且无 source/target 字段;
+      // 链路: p.source/p.target 存在, 此时 pointNumber 是链路索引, 不能当节点用.
+      if(p && (p.source !== undefined || p.target !== undefined)) return;
+      var nodeIdx = p.pointNumber;
+      if(!(nodeIdx >= 0) || nodeIdx >= cd.length) return;
+      var info = cd[nodeIdx];
       if(!info || !Array.isArray(info) || info.length < 4) return;
+
+      // 再次点击同一节点 → 取消高亮并恢复全量
+      if(state.hlNode === nodeIdx){
+        state.hlNode = -1;
+        clearHighlight();
+      } else {
+        state.hlNode = nodeIdx;
+        highlightPath(nodeIdx);
+      }
+
       var layerIdx = info[1], col = info[2], val = info[3];
       if(!col || state.header.indexOf(col) < 0) return;
-
-      highlightLinks(p.pointNumber);
 
       if(val === "NG" || val === "OK"){
         // 点击结果层节点 → 只看该结果的子集
@@ -796,13 +812,54 @@
     });
   }
 
-  // ---------- 路径高亮：点击节点后只保留与该节点直接相连的链路颜色，其余变淡 ----------
-  function highlightLinks(nodeIdx){
+  // ---------- 路径高亮：点击节点后, 经过该节点的完整链路(上游+下游)保持颜色, 其余变淡 ----------
+  // 用 BFS 从点击节点分别向源层(上游)和结果层(下游)扩散, 找到所有与之连通的链路
+  function highlightPath(nodeIdx){
     if(!state.cpkResult || typeof Plotly === "undefined") return;
     var links = state.cpkResult.links;
-    var newColors = links.color.map(function(c, i){
+    var nLinks = links.source.length;
+    var keep = new Array(nLinks).fill(false);
+
+    // 邻接表: 上游链路边(指向本节点的链路) 与 下游链路边(从本节点出发的链路)
+    var up = {};   // up[node] = [linkIdx...]  链路 target === node
+    var down = {}; // down[node] = [linkIdx...] 链路 source === node
+    for(var i=0;i<nLinks;i++){
       var s = links.source[i], t = links.target[i];
-      return (s === nodeIdx || t === nodeIdx) ? c : "rgba(200,203,212,0.08)";
+      (down[s] = down[s] || []).push(i);
+      (up[t] = up[t] || []).push(i);
+    }
+
+    // 从 nodeIdx 向上游(源层)扩散: 把与 nodeIdx 直接/间接相连的上游链路全部保留
+    var seenUp = {};
+    var queueUp = [nodeIdx];
+    while(queueUp.length){
+      var cur = queueUp.pop();
+      var ups = up[cur] || [];
+      for(var j=0;j<ups.length;j++){
+        var li = ups[j];
+        keep[li] = true;
+        var from = links.source[li];
+        if(!seenUp[from]){ seenUp[from] = true; queueUp.push(from); }
+      }
+    }
+
+    // 从 nodeIdx 向下游(结果层)扩散
+    var seenDown = {};
+    var queueDown = [nodeIdx];
+    while(queueDown.length){
+      var cur2 = queueDown.pop();
+      var downs = down[cur2] || [];
+      for(var k=0;k<downs.length;k++){
+        var li2 = downs[k];
+        keep[li2] = true;
+        var to = links.target[li2];
+        if(!seenDown[to]){ seenDown[to] = true; queueDown.push(to); }
+      }
+    }
+
+    // 构建新颜色: 保留链路的原色, 其余压淡
+    var newColors = links.color.map(function(c, idx){
+      return keep[idx] ? c : "rgba(200,203,212,0.08)";
     });
     var gd = document.querySelector(".js-plotly-plot");
     if(gd) Plotly.restyle(gd, { "link.color": [newColors] }, [0]);
@@ -919,6 +976,7 @@
       $("btnClearFilter").addEventListener("click", function(){
         state.filter = null;
         state.cpkScope = "all";
+        state.hlNode = -1;
         clearHighlight();
         renderCpkScope();
         renderFilterBar();
