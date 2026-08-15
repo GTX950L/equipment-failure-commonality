@@ -409,10 +409,13 @@
 
     const layerStats = [layerStat(srcShort)];
     paramLayers.forEach(function (list) { layerStats.push(layerStat(list)); });
-    // 结果层 NG/OK 的统计
-    layerStats.push({ NG: { ratio: 1, n: 0, ng: 0 }, OK: { ratio: 0, n: 0, ng: 0 } });
+    // 结果层 NG/OK 的统计 (键用 LABEL_NG/LABEL_OK, 兼容自定义结果标签)
+    const resultStat = {};
+    resultStat[LABEL_NG] = { ratio: 1, n: 0, ng: 0 };
+    resultStat[LABEL_OK] = { ratio: 0, n: 0, ng: 0 };
+    layerStats.push(resultStat);
     rows.forEach(function (r) {
-      const key = r.isNG ? "NG" : "OK";
+      const key = r.isNG ? LABEL_NG : LABEL_OK;
       layerStats[layerStats.length - 1][key].n++;
       if (r.isNG) layerStats[layerStats.length - 1][key].ng++;
     });
