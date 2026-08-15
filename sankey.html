@@ -227,20 +227,47 @@
       document.head.appendChild(s);
     });
   }
-  function ensurePlotly(){
-    return loadScript("lib/plotly.min.js").then(function(){
-      if(typeof Plotly === "undefined") {
-        return loadScript("https://cdn.plot.ly/plotly-2.35.2.min.js");
+  // 按顺序尝试多个来源: 本地 → 官方 CDN → jsDelivr → unpkg (本地 4.5MB 下载失败时自动切换)
+  var PLOTLY_SOURCES = [
+    "lib/plotly.min.js",
+    "https://cdn.plot.ly/plotly-2.35.2.min.js",
+    "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js",
+    "https://unpkg.com/plotly.js-dist-min@2.35.2/plotly.min.js",
+  ];
+  var XLSX_SOURCES = [
+    "lib/xlsx.full.min.js",
+    "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js",
+    "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+  ];
+  // 逐个尝试, 失败换下一个; 全部失败 reject
+  function trySources(sources, globalName, timeoutMs){
+    timeoutMs = timeoutMs || 20000;
+    var i = 0;
+    return new Promise(function(resolve, reject){
+      function next(){
+        if(i >= sources.length){ reject(new Error("加载 " + globalName + " 引擎失败(已尝试 " + sources.length + " 个来源, 请检查网络后重试)")); return; }
+        var src = sources[i++];
+        var timer = setTimeout(function(){
+          // 单个来源超时 → 移除脚本节点, 试下一个
+          var nodes = document.querySelectorAll('script[src="' + src + '"]');
+          nodes.forEach(function(n){ n.remove(); });
+          libLoading[src] = null;
+          next();
+        }, timeoutMs);
+        loadScript(src).then(function(){
+          clearTimeout(timer);
+          if(typeof window[globalName] !== "undefined"){ resolve(); return; }
+          next(); // 加载了但没定义全局 → 换下一个
+        }).catch(function(){
+          clearTimeout(timer);
+          next();
+        });
       }
+      next();
     });
   }
-  function ensureXLSX(){
-    return loadScript("lib/xlsx.full.min.js").then(function(){
-      if(typeof XLSX === "undefined") {
-        return loadScript("https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js");
-      }
-    });
-  }
+  function ensurePlotly(){ return trySources(PLOTLY_SOURCES, "Plotly"); }
+  function ensureXLSX(){ return trySources(XLSX_SOURCES, "XLSX"); }
 
   // ---------- 解析 CSV ----------
   function textToRows(text){
@@ -643,7 +670,16 @@
       '正在加载绘图引擎…（首次约 1~3 秒，请稍候）</div>';
     ensurePlotly().then(function(){
       plotSankey();
-    }).catch(function(e){ setInfo(e.message, "warn"); });
+    }).catch(function(e){
+      // 失败时把错误显示在图表区域, 而不是只在数据面板提示
+      $("chartArea").innerHTML =
+        '<div class="empty-tip" style="padding:40px 20px">' +
+        '<div style="font-size:26px;margin-bottom:10px">⚠️</div>' +
+        '<div>绘图引擎加载失败</div>' +
+        '<div style="margin-top:8px;color:#6a737d;font-size:12px">' + esc(e.message) + '</div>' +
+        '<div style="margin-top:10px;font-size:12px">请检查网络连接后重试；或刷新页面后再点一次。</div></div>';
+      setInfo(e.message, "warn");
+    });
   });
 
   // 配色模式切换 → 只更新颜色 (restyle), 不重建整图
