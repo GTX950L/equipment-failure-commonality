@@ -420,7 +420,7 @@
     list.innerHTML = "";
     var cands = paramCandidates();
     if(!cands.length){ list.innerHTML = '<div class="empty-tip">没有可选的参数列（源列和结果列占了全部列）</div>'; return; }
-    // 按表头顺序展示（不按重要度排序，也不自动勾选）
+    // 按表头顺序展示（不排序、不自动勾选）
     cands.forEach(function(col){
       var label = document.createElement("label");
       label.className = "chk";
