@@ -147,11 +147,14 @@ const floatVals = ["0.108", "0.110", "0.107", "0.112", "0.109"];
 const floatPrep = core.prepareLayer(floatVals, 2, 30);
 assert.ok(floatPrep[0] !== floatPrep[floatPrep.length - 1] || floatPrep.length > 0, "连续小数应分箱为区间标签");
 assert.ok(String(floatPrep[0]).indexOf("~") >= 0 || String(floatPrep[0]).indexOf("(") >= 0, "分箱标签应为区间形式");
-// 整数高基数(如唯一值 200)应仍走分箱
+// 整数高基数(如唯一值 200)应仍走分箱: 桶标签为区间([a ~ b])或截尾桶(<lo / >hi)
 const manyInts = [];
 for (let i = 0; i < 200; i++) manyInts.push(String(i));
 const manyPrep = core.prepareLayer(manyInts, 4, 30);
-assert.ok(String(manyPrep[0]).indexOf("~") >= 0, "整数高基数列应分箱");
+assert.ok(
+  String(manyPrep[0]).indexOf("~") >= 0 || String(manyPrep[0]).indexOf("<") >= 0,
+  "整数高基数列应分箱"
+);
 // layers 结构
 assert.ok(Array.isArray(result.layers), "buildSankey 应返回 layers");
 assert.strictEqual(result.layers.length, 1 + PARAMS.length + 1, "应为 6 层 (1 源 + 4 参数 + 1 结果)");
