@@ -131,37 +131,45 @@
   }
 
   function binNumeric(values, nBins) {
-    /** 等宽分箱，与 pandas.cut 行为接近，返回字符串标签 */
+    /**
+     * 自适应分箱:
+     * - 先做 1%/99% 分位数截尾(Winsorize), 避免极端离群值(如 0 或 2.5 的测量异常)拉宽分箱
+     * - 在截尾后的 [lo, hi] 内等宽分箱, 保证正常数据能分开
+     * - 小于 lo 的归入下限桶, 大于 hi 的归入上限桶(标为异常区间)
+     * 比纯等宽分箱对偏态数据更科学。
+     */
     const nums = values.map(toNumber);
-    let min = Infinity;
-    let max = -Infinity;
-    nums.forEach(function (n) {
-      if (!isNaN(n)) {
-        if (n < min) min = n;
-        if (n > max) max = n;
-      }
-    });
-    if (!isFinite(min) || !isFinite(max)) {
+    const valid = nums.filter(function (n) { return !isNaN(n); });
+    if (!valid.length) {
       return values.map(function () { return "(空值)"; });
     }
-    if (min === max) {
+    valid.sort(function (a, b) { return a - b; });
+    if (valid[valid.length - 1] === valid[0]) {
       // 只有一个值，分箱无意义，直接返回原值
-      return values.map(function (v) { return String(v); });
+      return values.map(function (v) {
+        const n = toNumber(v);
+        return isNaN(n) ? "(空值)" : String(v);
+      });
     }
-    const width = (max - min) / nBins;
+    // 1% / 99% 分位数作为截尾边界
+    const p1 = valid[Math.max(0, Math.floor(valid.length * 0.01))];
+    const p99 = valid[Math.min(valid.length - 1, Math.floor(valid.length * 0.99))];
+    const lo = p1, hi = p99;
+    const width = (hi - lo) / nBins;
+    const fmt = function (x) {
+      return String(Math.round(x * 1e5) / 1e5);
+    };
     const labels = values.map(function (v) {
       const n = toNumber(v);
       if (isNaN(n)) return "(空值)";
-      let idx = Math.floor((n - min) / width);
+      if (n < lo) return "<" + fmt(lo);              // 低于下限 → 异常低值桶
+      if (n > hi) return ">" + fmt(hi);              // 高于上限 → 异常高值桶
+      let idx = Math.floor((n - lo) / width);
       if (idx >= nBins) idx = nBins - 1;
       if (idx < 0) idx = 0;
-      const lo = min + idx * width;
-      const hi = lo + width;
-      const fmt = function (x) {
-        // 最多显示 5 位小数（去掉末尾 0）
-        return String(Math.round(x * 1e5) / 1e5);
-      };
-      return "[" + fmt(lo) + " ~ " + fmt(hi) + "]";
+      const l2 = lo + idx * width;
+      const h2 = l2 + width;
+      return "[" + fmt(l2) + " ~ " + fmt(h2) + "]";
     });
     return labels;
   }
@@ -474,7 +482,8 @@
         srcL.push(nodeIndex[i + "\u0000" + l]);
         tgtL.push(nodeIndex[(i + 1) + "\u0000" + rt]);
         valL.push(cnt);
-        const axis = nodeAxis[i + "\u0000" + l] === undefined ? 0 : nodeAxis[i + "\u0000" + l];
+        // 链路颜色 = 该链路下游(目标节点)的 NG 浓度: 流入 FAIL 的链路红, 流入 PASS 的链路蓝
+        const axis = nodeAxis[(i + 1) + "\u0000" + rt] === undefined ? 0 : nodeAxis[(i + 1) + "\u0000" + rt];
         colorL.push(colorMode === "binary" ? colorForLinkBinary(axis) : colorForLink(axis));
       });
     });
