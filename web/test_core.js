@@ -34,7 +34,7 @@ const data = parsed.rows.map(function (cells) {
 const result = core.buildSankey({
   data: data,
   sourceCol: "FlowCode",
-  paramCols: ["注水阀", "注水量_g", "扬水通量", "肘存量"],
+  paramCols: ["注水阀", "注水量_g", "扬水通量", "封存量"],
   resultCol: "判定结果",
   ngValues: ["NG"],
   topN: 6,
@@ -90,7 +90,7 @@ assert.strictEqual(result.nodes.customdata[0].length, 7, "customdata 应为 [NG�
 // 二色模式
 const resultBinary = core.buildSankey({
   data: data, sourceCol: "FlowCode",
-  paramCols: ["注水阀", "注水量_g", "扬水通量", "肘存量"],
+  paramCols: ["注水阀", "注水量_g", "扬水通量", "封存量"],
   resultCol: "判定结果", ngValues: ["NG"], topN: 6, bins: 5,
   colorMode: "binary",
 });
@@ -121,12 +121,12 @@ const scores = core.scoreColumns(data, parsed.header, "FlowCode", "判定结果"
 assert.strictEqual(scores["FlowCode"], -1, "源列应被排除 (-1)");
 assert.strictEqual(scores["判定结果"], -1, "结果列应被排除 (-1)");
 // 候选参数列(非排除列)应有正分数, 范围 0~1
-const candidates = ["注水阀", "注水量_g", "扬水通量", "肘存量"];
+const candidates = ["注水阀", "注水量_g", "扬水通量", "封存量"];
 candidates.forEach(function (c) {
   assert.ok(scores[c] > 0 && scores[c] <= 1, c + " 应有正分数且在 0~1: " + scores[c]);
 });
-// 分数能区分相对重要性: 肘存量在 demo 中对 NG 区分度最高, 不应低于其他列太多
-assert.ok(scores["肘存量"] >= scores["注水阀"], "肘存量分数应不低于注水阀");
+// 分数能区分相对重要性: 封存量在 demo 中对 NG 区分度最高, 不应低于其他列太多
+assert.ok(scores["封存量"] >= scores["注水阀"], "封存量分数应不低于注水阀");
 // 排除规则: 构造带时间/编号列的假表头, 应被排除
 const fakeHeader = ["条码", "测试时间", "设备编号", "注水量_g", "判定结果"];
 const fakeScores = core.scoreColumns(data, fakeHeader, "FlowCode", "判定结果", ["NG"], 5);
