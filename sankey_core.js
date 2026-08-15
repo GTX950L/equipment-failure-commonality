@@ -1,7 +1,7 @@
 /**
  * sankey_core.js — 桑基图核心计算逻辑（纯 JS，无 DOM 依赖）
  *
- * 与 Python 版 src/sankey_analysis.py 保持同一套算法：
+ * 纯 JS 实现桑基图核心计算逻辑（浏览器 / Node 通用）：
  *   - 数值列等宽分箱
  *   - 离散列超过最大类别数时，低频合并为「其他」
  *   - 节点/链路按「相对基线 NG 占比」染色（tanh 映射到 [-1,1]）
@@ -409,10 +409,13 @@
 
     const layerStats = [layerStat(srcShort)];
     paramLayers.forEach(function (list) { layerStats.push(layerStat(list)); });
-    // 结果层 NG/OK 的统计
-    layerStats.push({ NG: { ratio: 1, n: 0, ng: 0 }, OK: { ratio: 0, n: 0, ng: 0 } });
+    // 结果层 NG/OK 的统计 (键用 LABEL_NG/LABEL_OK, 兼容自定义结果标签)
+    const resultStat = {};
+    resultStat[LABEL_NG] = { ratio: 1, n: 0, ng: 0 };
+    resultStat[LABEL_OK] = { ratio: 0, n: 0, ng: 0 };
+    layerStats.push(resultStat);
     rows.forEach(function (r) {
-      const key = r.isNG ? "NG" : "OK";
+      const key = r.isNG ? LABEL_NG : LABEL_OK;
       layerStats[layerStats.length - 1][key].n++;
       if (r.isNG) layerStats[layerStats.length - 1][key].ng++;
     });

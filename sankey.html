@@ -104,7 +104,7 @@
   <!-- ============ 面板 ① 数据 ============ -->
   <div class="panel">
     <h2><span class="step">1</span> 数据</h2>
-    <textarea id="dataArea" placeholder="直接粘贴 CSV / Excel 复制出来的表格：&#10;&#10;FlowCode,注水阀,注水量_g,判定结果&#10;KCHLZB00DV001115+A455P,A档,0.108,OK&#10;KCHLZB00DV001115+A455P,C档,0.102,NG&#10;&#10;（列名任意、列数不限，只需首行是列名）&#10;或点击下方按钮选择文件 / 把文件拖进来"></textarea>
+    <textarea id="dataArea" placeholder="直接粘贴 CSV / Excel 复制出来的表格：&#10;&#10;料号,条码,注水阀,注水量-g,测试结果&#10;M0V405N00D-1,KJCHUZB01RU0001T1D+A466P,1,0.1108,PASS&#10;M0V405N00D-1,KJCHUZB05NK0001T1D+A461P,3,0.1111,FAIL&#10;&#10;（列名任意、列数不限，只需首行是列名）&#10;或点击下方按钮选择文件 / 把文件拖进来"></textarea>
     <div id="parseInfo" class="parseinfo"></div>
     <div style="margin-top:10px">
       <button id="btnLoad">解析表格</button>
@@ -131,10 +131,10 @@
 
     <div class="row">
       <label>🎯 源列（条母 / 型号 / 批号）<select id="selSource"></select></label>
-      <label>🏁 结果列（NG / OK 判定）<select id="selResult"></select></label>
+      <label>🏁 结果列（NG/OK 或 PASS/FAIL 判定）<select id="selResult"></select></label>
     </div>
 
-    <div class="section-title">🔗 工序参数列（已自动识别重要列并打勾，可手动调整）</div>
+    <div class="section-title">🔗 工序参数列（勾选要分析的列）</div>
     <div id="paramList"></div>
 
     <div class="section-title">🚨 哪些值算「不良」？</div>
@@ -213,7 +213,6 @@
     cpkScope: "all",       // all | filter | ok | ng
     cpkResult: null,       // 最近一次 buildSankey 结果（含节点 customdata）
     colorMode: "gradient", // gradient 科学渐变 | binary JMP 二色
-    colScores: null,       // 重要列打分: {列名: 分数 0~1}, -1=排除
   };
 
   // ---------- 懒加载 Plotly / XLSX (页面秒开的关键) ----------
@@ -321,22 +320,8 @@
     renderHeaderTable();
     renderSelects();
     autoRecommend();
-    // 用自动识别的不良值计算各列信息增益, 并按重要性自动勾选
-    computeColScores();
     renderParams();
     initCpkPanel();
-  }
-
-  // ---------- 重要列打分（信息增益） ----------
-  function computeColScores(){
-    var ngVals = [];
-    $("ngList").querySelectorAll("input[type=checkbox]").forEach(function(b){
-      if(b.checked) ngVals.push(b.value);
-    });
-    state.colScores = SankeyCore.scoreColumns(
-      state.rows, state.header, sourceCol(), resultCol(),
-      ngVals, parseInt($("selBins").value, 10) || 5
-    );
   }
 
   function setInfo(msg, cls){
@@ -435,30 +420,14 @@
     list.innerHTML = "";
     var cands = paramCandidates();
     if(!cands.length){ list.innerHTML = '<div class="empty-tip">没有可选的参数列（源列和结果列占了全部列）</div>'; return; }
-    var scores = state.colScores || {};
-    // 按重要度排序: 高分在前, 未打分(undefined)其次, 排除(-1)最后
-    cands.sort(function(a, b){
-      var sa = scores[a] === undefined ? 0 : scores[a];
-      var sb = scores[b] === undefined ? 0 : scores[b];
-      return sb - sa;
-    });
-    // 自动勾选策略: 候选参数列少则全勾; 多则精选分数最高的前 N 个(最多 5 个, 保持图清晰流畅)
-    var valid = cands.filter(function(c){
-      var s = scores[c];
-      return s !== undefined && s >= 0;
-    });
-    var autoCount = Math.min(5, valid.length);
-    var autoChecked = 0;
-    cands.forEach(function(col, idx){
+    // 按表头顺序展示（不按重要度排序，也不自动勾选）
+    cands.forEach(function(col){
       var label = document.createElement("label");
       label.className = "chk";
       var cb = document.createElement("input");
       cb.type = "checkbox";
       cb.value = col;
-      var s = scores[col];
-      var important = (s !== undefined && s > 0 && idx < autoCount);
-      cb.checked = important; // 重要列自动打勾, 其余默认不打
-      if(important) autoChecked++;
+      cb.checked = false; // 默认全部不打勾，由用户手动选择
       label.appendChild(cb);
       var type = colType(state.header, col);
       label.appendChild(document.createTextNode(" "+col+" "));
@@ -466,22 +435,11 @@
       tag.className = "tag "+(type==="num"?"num":"");
       tag.textContent = type==="num"?"数值":"文本";
       label.appendChild(tag);
-      if(s !== undefined && s >= 0){
-        var star = document.createElement("span");
-        star.className = "tag num";
-        star.textContent = important ? ("★ 重要 " + Math.round(s*100) + "%") : ("重要度 " + Math.round(s*100) + "%");
-        label.appendChild(star);
-      } else if(s === -1){
-        var ex = document.createElement("span");
-        ex.className = "tag";
-        ex.textContent = "已排除";
-        label.appendChild(ex);
-      }
       list.appendChild(label);
     });
     var note = document.createElement("div");
     note.className = "hint";
-    note.textContent = "自动识别：已按「信息增益」（该列区分 NG/OK 的能力）自动勾选 " + autoChecked + " 个重要参数列，其余未勾选，可手动调整。";
+    note.textContent = "请勾选要分析的工序参数列（默认全部未勾选，可多选）。";
     list.appendChild(note);
   }
 
@@ -530,31 +488,40 @@
     list.appendChild(note);
   }
 
-  $("selSource").addEventListener("change", function(){ computeColScores(); renderParams(); });
+  $("selSource").addEventListener("change", function(){ renderParams(); });
   $("selResult").addEventListener("change", function(){
     renderParams();
     renderNg();
-    computeColScores();
-    renderParams();
   });
-  $("selBins").addEventListener("change", function(){ computeColScores(); renderParams(); });
+  $("selBins").addEventListener("change", function(){ renderParams(); });
 
   // ---------- 自动推荐 ----------
   function autoRecommend(){
-    // 源列: 按优先级匹配, 避免把"设备编号/单据编号"当源列
+    // 源列: 按优先级匹配, 避免把"设备编号/单据编号"当源列;
+    // 同一优先级内多个候选时, 取唯一值数最多的列(如"料号"唯一值少而"条码"多时优先条码)
     var srcKwGroups = [
       ["料号", "条码", "型号", "品号", "物料", "批号", "产品", "flowcode", "条母"],
       ["code", "id"],
     ];
     var resKw = ["判定", "结果", "ng", "ok", "pass", "fail", "合格", "不良", "判"];
     var sc = "", rc = "";
+    var srcUniq = function(col){
+      var s = new Set(), limit = Math.min(state.rows.length, 1000);
+      for(var i=0;i<limit;i++) s.add(String(state.rows[i][col]));
+      return s.size;
+    };
     for(var g=0; g<srcKwGroups.length && !sc; g++){
+      var matched = [];
       for(var i=0;i<state.header.length;i++){
         var low = state.header[i].toLowerCase();
-        if(srcKwGroups[g].some(function(k){ return low.indexOf(k) >= 0; })){
-          sc = state.header[i];
-          break;
+        if(srcKwGroups[g].some(function(k){ return low.indexOf(k) >= 0; })) matched.push(state.header[i]);
+      }
+      if(matched.length){
+        sc = matched[0];
+        for(var mi=1; mi<matched.length; mi++){
+          if(srcUniq(matched[mi]) > srcUniq(sc)) sc = matched[mi];
         }
+        break;
       }
     }
     for(var j=0;j<state.header.length;j++){
