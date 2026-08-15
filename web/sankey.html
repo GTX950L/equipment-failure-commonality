@@ -857,9 +857,11 @@
       }
     }
 
-    // 构建新颜色: 保留链路的原色, 其余压淡
+    // 构建新颜色: 保留链路的原色并加深不透明度(0.4→0.95)让它变实心, 其余压到几乎不可见
     var newColors = links.color.map(function(c, idx){
-      return keep[idx] ? c : "rgba(200,203,212,0.08)";
+      if(!keep[idx]) return "rgba(225,228,232,0.03)";
+      // 把 rgba(r,g,b,a) 的 alpha 从 0.4 提到 0.95, 让原色更鲜明
+      return c.replace(/,\s*[\d.]+\s*\)$/, ", 0.95)");
     });
     var gd = document.querySelector(".js-plotly-plot");
     if(gd) Plotly.restyle(gd, { "link.color": [newColors] }, [0]);
