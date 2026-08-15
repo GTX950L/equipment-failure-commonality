@@ -359,13 +359,20 @@
     });
     const baselineNg = rows.reduce(function (s, r) { return s + r.isNG; }, 0) / rows.length;
 
-    // 2. 源列 top-N
-    const srcCounts = new Map();
+    // 2. 源列 top-N: 按「NG 数优先、出现次数其次」排序, 保证单独显示的是最有问题的条码
+    //    (以前只按出现次数, 唯一值全为 1 时等于随机挑前 N 行, 对"查 NG"没有意义)
+    const srcAgg = new Map();  // src -> {n, ng}
     rows.forEach(function (r) {
-      srcCounts.set(r.src, (srcCounts.get(r.src) || 0) + 1);
+      const e = srcAgg.get(r.src) || { n: 0, ng: 0 };
+      e.n++;
+      e.ng += r.isNG;
+      srcAgg.set(r.src, e);
     });
-    const topSrc = Array.from(srcCounts.entries())
-      .sort(function (a, b) { return b[1] - a[1]; })
+    const topSrc = Array.from(srcAgg.entries())
+      .sort(function (a, b) {
+        if (b[1].ng !== a[1].ng) return b[1].ng - a[1].ng;   // NG 数多的优先
+        return b[1].n - a[1].n;                                // 其次出现次数多
+      })
       .slice(0, topN)
       .map(function (e) { return e[0]; });
     const isTop = new Set(topSrc);
@@ -474,7 +481,7 @@
 
     // 7. 标题
     const head = srcShort.slice().sort(function (a, b) {
-      return (srcCounts.get(a) || 0) - (srcCounts.get(b) || 0);
+      return (srcAgg.get(a) || { ng: 0 }).ng - (srcAgg.get(b) || { ng: 0 }).ng;
     }).pop();
     const title = head + " & " + Math.max(0, layerNodes[0].length - 1) + " more";
 
