@@ -105,10 +105,10 @@
   .colorbar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px}
 
   /* ---- 模态框: 更新记录 / 排查指南 (参照 cpk-jmp-studio 风格) ---- */
-  #clogOverlay,#guideOverlay{position:fixed;inset:0;background:rgba(16,32,64,.52);z-index:1000;
+  #clogOverlay,#guideOverlay,#reportOverlay{position:fixed;inset:0;background:rgba(16,32,64,.52);z-index:1000;
                display:none;align-items:flex-start;justify-content:center;padding:28px 16px;
                overflow-y:auto;backdrop-filter:blur(4px)}
-  #clogOverlay.open,#guideOverlay.open{display:flex;animation:fadeIn .18s ease}
+  #clogOverlay.open,#guideOverlay.open,#reportOverlay.open{display:flex;animation:fadeIn .18s ease}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   .gloss-box{background:var(--card);border-radius:16px;max-width:860px;width:100%;
              box-shadow:0 12px 40px rgba(16,32,64,.3);overflow:hidden;animation:slideUp .22s ease}
@@ -209,6 +209,8 @@
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button id="btnGuide" class="head-btn">📖 排查指南</button>
+      <button id="btnReport" class="head-btn">📄 根因报告</button>
+      <button id="btnSnapshot" class="head-btn">📤 导出配置</button>
       <button id="btnChangelog" class="head-btn">📋 更新记录</button>
       <a class="head-btn" href="https://gtx950l.github.io/cpk-jmp-studio/cpk_calculator.html" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block;text-align:center">🔗 Cpk 计算器</a>
     </div>
@@ -246,6 +248,11 @@
       </div>
     </details>
 
+    <details id="qualityBox">
+      <summary>📊 数据质量报告（空值率 / 类型 / 唯一值 / NG 率）</summary>
+      <div id="qualityBody" class="scroll" style="margin-top:8px"></div>
+    </details>
+
     <div class="row">
       <label>🎯 源列（条母 / 型号 / 批号）<select id="selSource"></select></label>
       <label>🏁 结果列（NG/OK 或 PASS/FAIL 判定）<select id="selResult"></select></label>
@@ -272,10 +279,22 @@
     </div>
     <div style="margin-top:10px">
       <button id="btnPlot" type="primary">🚀 生成桑基图</button>
+      <button id="btnCompare" class="sec">🔁 双图对比</button>
       <button id="btnPng" class="sec">💾 下载 PNG</button>
       <button id="btnSvg" class="sec">🖼 下载 SVG</button>
       <span class="hint" style="display:inline-block;margin-left:6px">PNG 可在图上方工具条直接下载 / 放大。</span>
     </div>
+    <div id="comparePanel" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:#fbfcfe">
+      <div class="process-title">🔁 双图对比（同工序配置，两组数据并排出图）</div>
+      <div class="process-row">
+        <label style="font-size:12px">分组列<select id="cmpCol"></select></label>
+        <label style="font-size:12px">组 A<select id="cmpA"></select></label>
+        <label style="font-size:12px">组 B<select id="cmpB"></select></label>
+        <button class="sec" id="btnCmpGo" style="padding:4px 12px">生成对比</button>
+      </div>
+      <div class="process-note">示例：分组列选「测试时间」→ 组 A 选「夜班(22-8)」、组 B 选「上午(8-12)」，对比两条时间段的红色路径差异。离散列按类别选，数值列自动分箱。</div>
+    </div>
+    <div id="compareWrap" style="display:none;margin-top:12px"></div>
     <div style="margin-top:8px">
       配色模式：
       <label class="chk"><input type="radio" name="colorMode" value="gradient" checked> 科学渐变（红-灰-蓝）</label>
@@ -466,6 +485,9 @@
     renderHeaderTable();
     renderSelects();
     autoRecommend();
+    renderQualityReport();
+    checkNgDrift();
+    autoRecommend();
     var hadCfg = restoreLastConfig();   // 尝试恢复上次保存的配置(列名匹配才生效)
     renderParams();
     initCpkPanel();
@@ -644,16 +666,32 @@
     // ---- 工序顺序配置(可选): 影响推荐排序/上下游标注/桑基图层顺序 ----
     var procBox = document.createElement("div");
     procBox.className = "process-box";
+    var TEMPLATES = {
+      "9610注水除气线": ["注水阀", "注水量-g", "注水后称重-g", "封存量", "除气真空值", "压力值"],
+      "注塑成型": ["模具温度", "料筒温度", "注射压力", "保压时间", "冷却时间", "收缩率"],
+      "SMT贴片": ["锡膏厚度", "回流焊峰值温", "回流焊速度", "AOI检测"],
+      "电池组装": ["电芯批号", "注液量", "化成电流", "化成温度", "容量测试"],
+    };
+    var tplBtns = '';
+    Object.keys(TEMPLATES).forEach(function(k){ tplBtns += '<button class="sec" style="padding:1px 8px;font-size:11px;margin:0 3px" data-tpl="' + k + '">' + k + '</button>'; });
     procBox.innerHTML =
-      '<div class="process-title">🔀 工序顺序（可选 · 强烈建议填写）</div>' +
+      '<div class="process-title">🔀 工序顺序（可选 · 强烈建议填写）<span style="font-weight:400;font-size:11px;color:var(--muted)">预设模板：</span>' + tplBtns + '</div>' +
       '<div class="process-row">' +
         '<select id="selProcessCol" title="按实际工序先后选择参数列，第一道工序在前"></select>' +
         '<button class="sec" id="btnAddProcess">添加 ↓</button>' +
         '<button class="sec" id="btnClearProcess">清空</button>' +
       '</div>' +
       '<div id="processList" class="process-list"></div>' +
-      '<div class="process-note">填写后：①推荐排名按工序顺序重排并标注上下游；②疑似上游根因列会标红提示；③出图时参数层自动按此顺序排列（红色分叉位置 = 工序位置）。</div>';
+      '<div class="process-note">填写后：①推荐排名按工序顺序重排并标注上下游；②疑似上游根因列会标红提示；③出图时参数层自动按此顺序排列（红色分叉位置 = 工序位置）。工序项可<span style="color:#0a4f9c">拖拽</span>调整顺序。</div>';
     list.appendChild(procBox);
+    procBox.querySelectorAll("button[data-tpl]").forEach(function(b){
+      b.addEventListener("click", function(){
+        var tpl = TEMPLATES[b.getAttribute("data-tpl")];
+        state.processOrder = tpl.filter(function(c){ return paramCandidates().indexOf(c) >= 0; });
+        if(!state.processOrder.length){ setInfo("当前表头与「" + b.getAttribute("data-tpl") + "」模板无匹配列，可手动下拉添加", "warn"); }
+        renderProcessList(); refreshProcessSelect();
+      });
+    });
     function refreshProcessSelect(){
       var sel = $("selProcessCol");
       var used = {};
@@ -670,10 +708,22 @@
         box.innerHTML = '<span style="font-size:12px;color:var(--muted)">未设置。示例：注水阀 → 注水量-g → 注水后称重-g → 封存量</span>';
         return;
       }
+      var dragIdx = -1;
       state.processOrder.forEach(function(col, i){
         var item = document.createElement("span");
         item.className = "process-item";
+        item.draggable = true;
         item.innerHTML = '<span class="seq">' + (i + 1) + '.</span>' + col + '<button class="rm" title="移除">✕</button>';
+        item.addEventListener("dragstart", function(){ dragIdx = i; item.style.opacity = "0.5"; });
+        item.addEventListener("dragend", function(){ item.style.opacity = ""; dragIdx = -1; });
+        item.addEventListener("dragover", function(e){ e.preventDefault(); });
+        item.addEventListener("drop", function(e){
+          e.preventDefault();
+          if(dragIdx < 0 || dragIdx === i) return;
+          var moved = state.processOrder.splice(dragIdx, 1)[0];
+          state.processOrder.splice(i, 0, moved);
+          renderProcessList(); refreshProcessSelect();
+        });
         item.querySelector(".rm").addEventListener("click", function(){
           state.processOrder.splice(i, 1);
           renderProcessList(); refreshProcessSelect();
@@ -822,6 +872,43 @@
         html += '</ul></div>';
       }
     }
+    // 决策树规则: 什么条件下最可能 NG
+    if(topCols.length){
+      var rules = SankeyCore.buildDecisionRules(state.rows, state.header, topCols, resultCol(), ngVals, { maxDepth: 3, minLeaf: 5 });
+      if(rules.length){
+        html += '<div class="rec-combo"><div class="rec-title">🌳 决策树规则（自动挖掘「什么条件下最可能 NG」）</div><ul>';
+        rules.slice(0, 6).forEach(function(r){
+          var txt = r.conds.map(function(c){ return c.sign ? c.text : "非(" + c.text + ")"; }).join(" 且 ");
+          html += '<li><span class="rate">若 ' + txt + ' → ' + r.ng + '/' + r.n + ' FAIL（' + Math.round(r.rate * 100) + '%）</span></li>';
+        });
+        html += '</ul><div class="rec-tip">规则按 NG 浓度排序，可直接作为 FACA 结论的依据（复制到报告）。</div></div>';
+      }
+    }
+    // 时段效应: 自动检测时间列
+    if(ngVals.length){
+      var timeCol = state.header.filter(function(c){ return /时间|时刻|date|time/i.test(c) && c !== resultCol() && c !== sourceCol(); })[0];
+      if(timeCol){
+        var tb = SankeyCore.timeBandStats(state.rows, timeCol, resultCol(), ngVals);
+        if(tb.usable){
+          html += '<div class="rec-combo"><div class="rec-title">🕐 时段效应（' + timeCol + ' 按日时段分组）</div><ul>';
+          tb.bands.forEach(function(b){
+            html += '<li><span class="rate">' + b.band + '</span>　<span class="muted">' + b.n + ' 条 · NG 率 ' + (b.rate * 100).toFixed(1) + '%</span></li>';
+          });
+          html += '</ul><div class="rec-tip">最高时段为 ' + tb.peakBand.band + '（' + (tb.peakBand.rate * 100).toFixed(1) + '%）。若显著高于其他时段，优先排查该班次/时段的设备与操作。</div></div>';
+        }
+      }
+    }
+    // 强相关同源提示
+    if(topCols.length >= 2){
+      var pc = SankeyCore.pairCorrelation(state.rows, topCols.slice(0, 12), 5, 30);
+      if(pc.length){
+        html += '<div class="rec-combo"><div class="rec-title">🔗 强相关参数对（同源提示：可能是同一根因的下游表现）</div><ul>';
+        pc.slice(0, 5).forEach(function(p){
+          html += '<li><span class="rate">' + p.a + ' × ' + p.b + ' = ' + p.r + '</span></li>';
+        });
+        html += '</ul></div>';
+      }
+    }
     holder.innerHTML = html;
     holder.querySelectorAll("button.rec-add").forEach(function(btn){
       btn.addEventListener("click", function(){
@@ -915,6 +1002,171 @@
     }
   }
 
+  // ---------- 数据质量报告 + NG 率漂移 ----------
+  var NG_HIST_KEY = "sankey_ng_hist_v1";
+  function currentNgVals(){
+    var ngVals = [];
+    var box = $("ngList");
+    if(box) box.querySelectorAll("input[type=checkbox]:checked").forEach(function(b){ ngVals.push(b.value); });
+    return ngVals;
+  }
+  function renderQualityReport(){
+    var body = $("qualityBody");
+    if(!body || !state.rows.length) return;
+    var ngVals = currentNgVals();
+    var dq = SankeyCore.dataQualityReport(state.rows, state.header, resultCol(), ngVals.length ? ngVals : ["FAIL"]);
+    var html = '<div style="font-size:12px;color:#1f2328">共 ' + dq.n.toLocaleString() + ' 行 · NG 率 <b style="color:var(--bad)">' + (dq.ngRate * 100).toFixed(2) + '%</b></div>';
+    html += '<table class="rec-tbl" style="margin-top:6px"><tr><th>列</th><th>类型</th><th>空值率</th><th>唯一值</th><th>样例</th></tr>';
+    var warns = [];
+    dq.cols.forEach(function(c){
+      var miss = (c.missingRate * 100).toFixed(0) + "%";
+      var missCls = c.missingRate > 0.5 ? '<span class="rec-up-tip">空值多</span>' : (c.missingRate > 0.2 ? '<span style="color:#bf8700;font-weight:600">⚠</span>' : "");
+      var typeTxt = c.type === "num" ? "数值" : c.type === "int" ? "档位" : c.type === "time" ? "时间" : "文本";
+      html += '<tr><td>' + c.name + '</td><td>' + typeTxt + '</td><td>' + miss + ' ' + missCls + '</td><td>' + c.uniq + '</td><td>' + c.sample + '</td></tr>';
+      if(c.missingRate > 0.5) warns.push(c.name + " 空值率 " + miss);
+    });
+    html += '</table>';
+    if(warns.length) html += '<div class="rec-tip" style="margin-top:6px">⚠ 注意空值列：' + warns.join("；") + '。空值过多的列分析时会被当「(空值)」类别，注意区分"该列本来就不记录"与"该工序没走到就失败了"（后者本身可能是线索）。</div>';
+    body.innerHTML = html;
+  }
+  function checkNgDrift(){
+    try{
+      var ngVals = currentNgVals();
+      if(!ngVals.length) return;
+      var dq = SankeyCore.dataQualityReport(state.rows, state.header, resultCol(), ngVals);
+      var cur = Math.round(dq.ngRate * 10000) / 100;
+      var key = "sankey_ng_" + (resultCol() || "?");
+      var last = parseFloat(localStorage.getItem(key) || "NaN");
+      localStorage.setItem(key, String(cur));
+      if(!isNaN(last) && Math.abs(cur - last) >= 0.5){
+        var delta = cur - last;
+        var txt = "NG 率较上次载入 " + (delta > 0 ? "↑+" : "↓") + Math.abs(delta).toFixed(2) + "%（本次 " + cur.toFixed(2) + "% vs 上次 " + last.toFixed(2) + "%）";
+        setInfo(txt, delta > 0 ? "warn" : "ok");
+      }
+    }catch(e){ /* 忽略 */ }
+  }
+
+  // ---------- 一键根因报告 (FACA 汇总) ----------
+  function buildReport(){
+    var lines = [];
+    lines.push("# 设备问题共性分析 · 根因报告");
+    lines.push("");
+    lines.push("生成时间：" + new Date().toLocaleString("zh-CN"));
+    if(!state.rows.length) return "尚未加载数据。";
+    var ngVals = currentNgVals();
+    lines.push("数据规模：" + state.rows.length.toLocaleString() + " 行 × " + state.header.length + " 列；源列=" + (sourceCol() || "—") + "；结果列=" + (resultCol() || "—") + "；不良值=" + (ngVals.join(" / ") || "—"));
+    var dq = SankeyCore.dataQualityReport(state.rows, state.header, resultCol(), ngVals.length ? ngVals : ["FAIL"]);
+    lines.push("整体 NG 率：" + (dq.ngRate * 100).toFixed(2) + "%");
+    // 勾选参数
+    var params = [];
+    var boxes = $("paramList");
+    if(boxes) boxes.querySelectorAll("input[type=checkbox]:checked").forEach(function(b){ params.push(b.value); });
+    lines.push("分析参数（" + params.length + " 列）：" + (params.join(" → ") || "未勾选"));
+    // 工序
+    if(state.processOrder && state.processOrder.length) lines.push("工序顺序：" + state.processOrder.join(" → "));
+    // 时段效应
+    lines.push("");
+    lines.push("## 一、时段 / 班次效应");
+    var timeCol = state.header.filter(function(c){ return /时间|时刻|date|time/i.test(c) && c !== resultCol(); })[0];
+    if(timeCol){
+      var tb = SankeyCore.timeBandStats(state.rows, timeCol, resultCol(), ngVals.length ? ngVals : ["FAIL"]);
+      if(tb.usable){
+        tb.bands.forEach(function(b){ lines.push("- " + b.band + "：" + b.n + " 条，NG 率 " + (b.rate * 100).toFixed(1) + "%"); });
+        lines.push("**结论**：" + tb.peakBand.band + " NG 率最高（" + (tb.peakBand.rate * 100).toFixed(1) + "%），若显著高于其他时段，优先排查该班次/时段的设备与操作。");
+      } else lines.push("时间列「" + timeCol + "」可解析样本过少，未做时段分析。");
+    } else lines.push("未检测到时间列，跳过时段分析。");
+    // 决策树规则
+    lines.push("");
+    lines.push("## 二、决策树规则（什么条件下最可能 NG）");
+    if(params.length){
+      var rules = SankeyCore.buildDecisionRules(state.rows, state.header, params, resultCol(), ngVals.length ? ngVals : ["FAIL"]);
+      if(rules.length){
+        rules.forEach(function(r){
+          var txt = r.conds.map(function(c){ return c.sign ? c.text : "非(" + c.text + ")"; }).join(" 且 ");
+          lines.push("- 若 " + txt + " → " + r.ng + "/" + r.n + " FAIL（" + Math.round(r.rate * 100) + "%）");
+        });
+      } else lines.push("未挖出显著规则（样本不足或参数与 NG 无明显组合关系）。");
+    } else lines.push("未勾选参数列，跳过规则挖掘。");
+    // 组合线索
+    lines.push("");
+    lines.push("## 三、组合线索（交互根因）");
+    if(params.length && ngVals.length){
+      var combo = SankeyCore.comboNgAnalysis({ data: state.rows, candCols: params, baseCols: params, resultCol: resultCol(), ngValues: ngVals, bins: parseInt($("selBins") ? $("selBins").value : 5, 10) });
+      if(combo.length){
+        combo.slice(0, 8).forEach(function(c){
+          lines.push("- " + c.col + "=" + c.x + " × " + c.baseCol + "=" + c.y + " → " + c.ng + "/" + c.n + " FAIL（" + Math.round(c.rate * 100) + "%）");
+        });
+      } else lines.push("未发现显著组合。");
+    } else lines.push("未勾选参数列，跳过组合分析。");
+    // 同源参数
+    lines.push("");
+    lines.push("## 四、强相关参数对（同源提示）");
+    if(params.length >= 2){
+      var pc = SankeyCore.pairCorrelation(state.rows, params.slice(0, 12), 5, 30);
+      if(pc.length){
+        pc.forEach(function(p){ lines.push("- " + p.a + " × " + p.b + " = " + p.r + "（|r|≥0.5，可能是同一根因的下游表现）"); });
+      } else lines.push("未发现 |r|≥0.5 的强相关对。");
+    }
+    // 结论模板
+    lines.push("");
+    lines.push("## 五、结论与措施");
+    lines.push("- 红色分叉起点层：______（点桑基图红色节点可下钻验证）");
+    lines.push("- 疑似根因：______（对照上方规则 / 组合 / 时段）");
+    lines.push("- 建议措施：①______ ②______ ③______");
+    lines.push("- 验证方式：措施后复测 NG 率，对比本报告基线 " + (dq.ngRate * 100).toFixed(2) + "%");
+    return lines.join("\n");
+  }
+  function openReport(){
+    $("reportBody").textContent = buildReport();
+    $("reportOverlay").classList.add("open");
+  }
+  function downloadReport(){
+    var md = buildReport();
+    var blob = new Blob(["\ufeff" + md], { type: "text/markdown;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "根因分析报告_" + new Date().toISOString().slice(0, 10) + ".md";
+    a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 3000);
+  }
+  function copyReport(){
+    var md = buildReport();
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(md).then(function(){ setInfo("报告已复制到剪贴板", "ok"); }, function(){ setInfo("复制失败，请手动选择文本", "warn"); });
+    } else {
+      var ta = document.createElement("textarea");
+      ta.value = md; document.body.appendChild(ta); ta.select();
+      try{ document.execCommand("copy"); setInfo("报告已复制到剪贴板", "ok"); }catch(e){ setInfo("复制失败", "warn"); }
+      document.body.removeChild(ta);
+    }
+  }
+
+  // ---------- 导出分析配置快照 ----------
+  function exportSnapshot(){
+    try{
+      var params = [];
+      var boxes = $("paramList");
+      if(boxes) boxes.querySelectorAll("input[type=checkbox]:checked").forEach(function(b){ params.push(b.value); });
+      var ngVals = currentNgVals();
+      var snap = {
+        app: "equipment-failure-commonality",
+        version: "v3.5.0",
+        time: new Date().toISOString(),
+        source: sourceCol(), result: resultCol(), ng: ngVals, params: params,
+        processOrder: state.processOrder || [],
+        filter: state.filter || null,
+        rows: state.rows.length,
+      };
+      var blob = new Blob(["\ufeff" + JSON.stringify(snap, null, 2)], { type: "application/json;charset=utf-8" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "分析快照_" + new Date().toISOString().slice(0, 10) + ".json";
+      a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 3000);
+      setInfo("分析配置快照已导出（含列选择/工序/筛选条件）", "ok");
+    }catch(e){ setInfo("导出失败：" + e.message, "warn"); }
+  }
+
   // ---------- 自动推荐 ----------
   function autoRecommend(){
     // 源列: 按优先级匹配, 避免把"设备编号/单据编号"当源列;
@@ -956,6 +1208,135 @@
   }
 
   // ---------- 出图 ----------
+  // ---------- 双图对比: 同配置下两组数据并排出图 ----------
+  function initCompare(){
+    var btn = $("btnCompare");
+    if(!btn) return;
+    btn.onclick = function(){
+      if(!state.rows.length){ setInfo("请先加载数据", "warn"); return; }
+      var panel = $("comparePanel");
+      var show = panel.style.display !== "none";
+      panel.style.display = show ? "none" : "";
+      if(!show) fillCompare();
+    };
+  }
+  function fillCompare(){
+    var cands = paramCandidates().filter(function(c){
+      var s = new Set();
+      state.rows.forEach(function(r){ s.add(String(r[c] === null || r[c] === undefined ? "" : r[c])); });
+      return s.size >= 2 && s.size <= 10;
+    });
+    var timeCols = state.header.filter(function(c){ return /时间|时刻|date|time/i.test(c) && c !== resultCol() && c !== sourceCol(); });
+    cands = cands.concat(timeCols);
+    var sel = $("cmpCol");
+    sel.innerHTML = "";
+    cands.forEach(function(c){ sel.appendChild(new Option(c, c)); });
+    sel.onchange = fillCmpOptions;
+    fillCmpOptions();
+    $("btnCmpGo").onclick = doCompare;
+  }
+  function fillCmpOptions(){
+    var col = $("cmpCol").value;
+    var opts = [];
+    if(/时间|时刻|date|time/i.test(col)){ opts = ["夜班(22-8)", "上午(8-12)", "下午(12-18)", "晚班(18-22)"]; }
+    else {
+      var s = new Set();
+      state.rows.forEach(function(r){ s.add(String(r[col] === null || r[col] === undefined ? "" : r[col])); });
+      opts = Array.from(s).slice(0, 10);
+    }
+    ["cmpA", "cmpB"].forEach(function(id, idx){
+      var s2 = $(id);
+      s2.innerHTML = "";
+      opts.forEach(function(o, j){
+        if(!(idx === 1 && j === 0)) s2.appendChild(new Option(o, o));
+      });
+      if(s2.options.length) s2.selectedIndex = 0;
+    });
+  }
+  function cmpRowsOf(col, val){
+    if(/时间|时刻|date|time/i.test(col)){
+      var m = val.match(/(\d+)-(\d+)/);
+      if(!m) return [];
+      var lo = parseInt(m[1], 10), hi = parseInt(m[2], 10);
+      return state.rows.filter(function(r){
+        var tm = String(r[col] || "").match(/(\d{1,2})[:：](\d{2})/);
+        if(!tm) return false;
+        var h = parseInt(tm[1], 10);
+        if(lo > hi) return h >= lo || h <= hi;
+        return h >= lo && h < hi;
+      });
+    }
+    return state.rows.filter(function(r){ return String(r[col] === null || r[col] === undefined ? "" : r[col]) === val; });
+  }
+  function doCompare(){
+    var col = $("cmpCol").value, va = $("cmpA").value, vb = $("cmpB").value;
+    if(!col || !va || !vb){ setInfo("请选择分组列与两组值", "warn"); return; }
+    var ra = cmpRowsOf(col, va), rb = cmpRowsOf(col, vb);
+    if(!ra.length || !rb.length){ setInfo("某组数据为空，请换分组值", "warn"); return; }
+    var params = [];
+    document.querySelectorAll("#paramList input[type=checkbox]:checked").forEach(function(b){ params.push(b.value); });
+    if(!params.length){ setInfo("请先勾选工序参数列", "warn"); return; }
+    if(state.processOrder && state.processOrder.length){
+      var poMap = {};
+      state.processOrder.forEach(function(c, i){ poMap[c] = i; });
+      params.sort(function(a, b){
+        var ia = (a in poMap) ? poMap[a] : state.processOrder.length;
+        var ib = (b in poMap) ? poMap[b] : state.processOrder.length;
+        return ia - ib;
+      });
+    }
+    var ngVals = currentNgVals();
+    if(!ngVals.length){ setInfo("请先勾选不良值", "warn"); return; }
+    var bins = parseInt($("selBins").value, 10) || 5;
+    var topN = parseInt($("selTopN").value, 10) || 6;
+    var wrap = $("compareWrap");
+    wrap.style.display = "";
+    wrap.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+      '<div><div class="section-title" style="font-size:12.5px">组 A：' + esc(col) + ' = ' + esc(va) + '（' + ra.length + ' 条）</div><div id="cmpChartA" style="height:400px"></div></div>' +
+      '<div><div class="section-title" style="font-size:12.5px">组 B：' + esc(col) + ' = ' + esc(vb) + '（' + rb.length + ' 条）</div><div id="cmpChartB" style="height:400px"></div></div>' +
+      '</div>';
+    ["A", "B"].forEach(function(which, i){
+      var data = i === 0 ? ra : rb;
+      var res = SankeyCore.buildSankey({
+        data: data, sourceCol: sourceCol(), paramCols: params, resultCol: resultCol(),
+        ngValues: ngVals, topN: topN, bins: bins, colorMode: state.colorMode,
+      });
+      if(!res) return;
+      var L = res.layers.length;
+      var layerX = function(li){ return L > 1 ? 0.02 + 0.96 * li / (L - 1) : 0.5; };
+      var nodeX = new Array(res.nodes.label.length);
+      res.layers.forEach(function(layer, li){
+        var x = layerX(li);
+        layer.indices.forEach(function(idx){ nodeX[idx] = x; });
+      });
+      var trace = {
+        type: "sankey",
+        arrangement: "snap",
+        node: {
+          pad: 10, thickness: 12,
+          x: nodeX,
+          line: { color: "black", width: 0.5 },
+          label: res.nodes.label,
+          color: res.nodes.color,
+          customdata: res.nodes.customdata,
+          hovertemplate: "%{customdata[2]} = %{label}<br>NG 占比: %{customdata[0]:.1%} · n=%{customdata[4]}（NG %{customdata[5]}）<extra></extra>",
+        },
+        link: {
+          source: res.links.source, target: res.links.target, value: res.links.value,
+          color: res.links.color, hoverinfo: "none",
+        },
+      };
+      var layout = {
+        title: { text: (i === 0 ? "组 A" : "组 B") + " · NG 率 " + (res.baselineNg * 100).toFixed(1) + "%", x: 0.5, font: { size: 13 } },
+        font: { family: "Microsoft YaHei, Arial", size: 10 },
+        height: 400,
+        margin: { l: 8, r: 8, t: 44, b: 8 },
+        paper_bgcolor: "#fff",
+      };
+      Plotly.newPlot("cmpChart" + which, [trace], layout, { responsive: true, displaylogo: false });
+    });
+  }
+
   function plotSankey(){
     if(!state.header.length){ setInfo("请先加载数据", "warn"); return; }
     syncColorbarLabel();
@@ -1120,6 +1501,13 @@
       setInfo(e.message, "warn");
     });
   });
+  initCompare();
+  // 暴露给模态框 script 块使用(跨脚本块需 window 全局可访问)
+  window.openReport = openReport;
+  window.copyReport = copyReport;
+  window.downloadReport = downloadReport;
+  window.closeReport = function(){ document.getElementById("reportOverlay").classList.remove("open"); };
+  window.exportSnapshot = exportSnapshot;
 
   // 配色模式切换 → 只更新颜色 (restyle), 不重建整图
   function replotColor(){
@@ -1257,7 +1645,34 @@
       renderCpkScope();
       renderFilterBar();
       scheduleCalcCpk();
+      showNodeDetail();
     });
+  }
+
+  // ---------- 节点下钻: 显示该节点子集的明细表 ----------
+  function showNodeDetail(){
+    var old = document.getElementById("nodeDetailBox");
+    if(old) old.remove();
+    if(!state.filter) return;
+    var f = state.filter;
+    var sub = applyFilter(state.rows, f.col, f.value, f.layerIdx);
+    if(!sub.length) return;
+    var keyCols = state.header.filter(function(c){
+      return c !== f.col && /时间|时刻|date|time/.test(c) === false;
+    }).slice(0, 8);
+    var html = '<div class="rec-card" id="nodeDetailBox" style="margin-top:10px">';
+    html += '<div class="rec-title">🔎 节点下钻：' + esc(String(f.value).slice(0, 24)) + '（' + sub.length + ' 条样本 · 前 12 条）</div>';
+    html += '<table class="rec-tbl"><tr>' + keyCols.map(function(c){ return '<th>' + esc(c) + '</th>'; }).join('') + '</tr>';
+    sub.slice(0, 12).forEach(function(r){
+      html += '<tr>' + keyCols.map(function(c){
+        var v = r[c] === null || r[c] === undefined ? "" : String(r[c]);
+        return '<td>' + esc(v).slice(0, 12) + '</td>';
+      }).join('') + '</tr>';
+    });
+    if(sub.length > 12) html += '<tr><td colspan="' + keyCols.length + '" style="color:var(--muted);text-align:left">… 共 ' + sub.length + ' 条，仅显示前 12 条（可用上方导出配置配合外部工具查看）</td></tr>';
+    html += '</table></div>';
+    var cpk = $("cpkBox");
+    if(cpk) cpk.insertAdjacentHTML("beforebegin", html);
   }
 
   // ---------- 展开「其他」节点明细 ----------
@@ -1946,6 +2361,23 @@
   </div>
 </div>
 
+<!-- ===== 根因报告模态框 ===== -->
+<div id="reportOverlay">
+  <div class="gloss-box" role="dialog" aria-label="根因分析报告" style="max-width:860px">
+    <div class="gloss-head" style="justify-content:space-between">
+      <h2 style="flex:0 1 auto">📄 根因分析报告（FACA 汇总）</h2>
+      <div style="display:flex;gap:8px">
+        <button class="gloss-close" id="reportCopy" style="background:rgba(255,255,255,.15)">复制</button>
+        <button class="gloss-close" id="reportDl">下载 .md</button>
+        <button class="gloss-close" id="reportClose">✕ 关闭</button>
+      </div>
+    </div>
+    <div class="gloss-body" style="padding-top:14px">
+      <pre id="reportBody" style="white-space:pre-wrap;font-family:Consolas,Menlo,monospace;font-size:12.5px;line-height:1.7;margin:0;color:#1f2937"></pre>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 更新记录模态框 (参照 cpk-jmp-studio 风格) ===== -->
 <div id="clogOverlay">
   <div class="gloss-box" role="dialog" aria-label="更新记录" style="max-width:780px">
@@ -1954,7 +2386,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.4.0</b> · 最近更新 2026-08-16</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.5.0</b> · 最近更新 2026-08-16</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -1964,6 +2396,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.5.0',date:'2026-08-16',tag:'feat',tagTxt:'里程碑',
+   items:['新增「🌳 决策树规则挖掘」：贪心 CART 自动输出「什么条件下最可能 NG」的可读规则（实测：封存量≤0.097 → 82/82 100% FAIL），可直接作为 FACA 结论依据','新增「📊 数据质量报告」：加载后显示每列类型/空值率/唯一值/样例 + NG 率，空值列自动预警','新增「🕐 时段/班次效应」：自动检测时间列并按日时段分组（实测：9610 夜班 NG 率 6.4% > 上午 4.8% > 下午 2.5%）','新增「🔗 强相关参数对」：|r|≥0.5 自动提示同源下游参数（实测识别出 除气后称重×VC本体-g=1 的数学恒等关系）','新增「📄 根因报告」：一键汇总数据概要/时段/决策树规则/组合线索/强相关 + 结论模板，可复制/下载 Markdown，直接贴 FACA 周会','新增「🔎 节点下钻」：点击桑基图节点显示该子集前 12 条样本明细','新增「🔁 双图对比」：同配置下两组数据并排出图（如 夜班 vs 白班、工单 A vs B），对比红色路径差异','新增「📤 导出配置」：分析快照（列选择/工序/筛选条件）打包下载','工序顺序增强：行业模板预设（9610注水除气线/注塑/SMT/电池）+ 工序项拖拽排序','新增 NG 率漂移预警：与上次载入对比，±0.5% 以上自动提示'],
+   sub:'按优化路线图第一批+第二批+第三批全量实施：从"看得见"升级到"说得清"，一次补齐算法/数据/交互/工作流四层能力。'},
   {ver:'v3.4.0',date:'2026-08-16',tag:'feat',tagTxt:'新增',
    items:['新增「🔀 工序顺序」配置（可选）：下拉顺序点选参数列，第一道工序在前','填写工序后三处联动：①推荐排名按工序顺序重排并标注 上游/中游/下游 徽标；②比所有已勾选列更靠前的未勾选列标红「疑似上游根因」提示补勾；③生成桑基图时参数层自动按工序顺序排列（红色分叉位置直接对应工序位置）','从「找相关性」升级为「沿因果链找根因」：工序顺序是领域因果先验，弥补信息增益只认相关不认因果的缺陷（例：注水阀 IG 仅 0.115 但工序第 1，会被标为上游根因而非被淹没在第 12 名）'],
    sub:'用户提出"把工序告诉工具就能优化推荐判断"——确认可行并实现：工序顺序 = 因果先验，推荐展示/标注/出图三层联动。'},
@@ -2017,7 +2452,15 @@ function closeGuide(){document.getElementById('guideOverlay').classList.remove('
 document.getElementById('btnGuide').onclick=openGuide;
 document.getElementById('guideClose').onclick=closeGuide;
 document.getElementById('guideOverlay').addEventListener('click',e=>{if(e.target.id==='guideOverlay')closeGuide();});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeChangelog();closeGuide();}});
+/* ============ 根因报告 ============ */
+document.getElementById('btnReport').onclick=window.openReport;
+document.getElementById('reportClose').onclick=window.closeReport;
+document.getElementById('reportCopy').onclick=window.copyReport;
+document.getElementById('reportDl').onclick=window.downloadReport;
+document.getElementById('reportOverlay').addEventListener('click',e=>{if(e.target.id==='reportOverlay')document.getElementById('reportOverlay').classList.remove('open');});
+/* ============ 导出配置快照 ============ */
+document.getElementById('btnSnapshot').onclick=window.exportSnapshot;
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeChangelog();closeGuide();document.getElementById('reportOverlay').classList.remove('open');}});
 </script>
 </body>
 </html>

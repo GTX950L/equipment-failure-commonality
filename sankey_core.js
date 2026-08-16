@@ -750,6 +750,235 @@
   }
 
   // ---------------------------------------------------------------------
+  // 数据质量报告: 空值率 / 唯一值 / 类型 / NG 率
+  // ---------------------------------------------------------------------
+  function dataQualityReport(data, header, resultCol, ngValues) {
+    /** 返回 { n, ngRate, cols: [{name, type, missingRate, uniq, sample}] } type: num|int|text|time */
+    const n = data.length;
+    const ngSet = {};
+    (ngValues || ["NG"]).forEach(function (v) { ngSet[String(v).trim().toUpperCase()] = true; });
+    let ngCount = 0;
+    const cols = header.map(function (col) {
+      const vals = data.map(function (r) { return r[col] === null || r[col] === undefined ? "" : r[col]; });
+      let missing = 0;
+      const uniq = new Set();
+      vals.forEach(function (v) {
+        const s = String(v).trim();
+        if (s === "" || s === "nan" || s === "NaN" || s === "null") missing++;
+        else uniq.add(s);
+      });
+      let type = "text";
+      const low = String(col).toLowerCase();
+      if (/时间|时刻|日期|date|time/.test(low)) type = "time";
+      else if (isNumericColumn(vals)) type = isIntegerLowCardinality(vals, 30) ? "int" : "num";
+      return { name: col, type: type, missingRate: n ? missing / n : 0, uniq: uniq.size, sample: vals.length ? String(vals[0]).slice(0, 14) : "" };
+    });
+    if (resultCol) {
+      data.forEach(function (r) {
+        const key = String(r[resultCol] === null || r[resultCol] === undefined ? "" : r[resultCol]).trim().toUpperCase();
+        if (ngSet[key]) ngCount++;
+      });
+    }
+    return { n: n, ngRate: n ? ngCount / n : 0, cols: cols };
+  }
+
+  // ---------------------------------------------------------------------
+  // 时段 / 班次效应: 时间列 → 时段分布, 判断 NG 是否集中在某时段
+  // ---------------------------------------------------------------------
+  function timeBandStats(data, timeCol, resultCol, ngValues) {
+    /** 返回 { usable, bands: [{band, hours, n, ng, rate}], peakBand } */
+    function bandOf(s) {
+      const m = String(s).match(/(\d{1,2})[:：](\d{2})/);
+      if (!m) return null;
+      const h = parseInt(m[1], 10);
+      if (h >= 8 && h < 12) return { band: "上午(8-12)", hours: "8-11" };
+      if (h >= 12 && h < 18) return { band: "下午(12-18)", hours: "12-17" };
+      if (h >= 18 && h < 22) return { band: "晚班(18-22)", hours: "18-21" };
+      return { band: "夜班(22-8)", hours: "22-7" };
+    }
+    const ngSet = {};
+    (ngValues || ["NG"]).forEach(function (v) { ngSet[String(v).trim().toUpperCase()] = true; });
+    const agg = new Map();
+    let parsed = 0;
+    data.forEach(function (r) {
+      const b = bandOf(r[timeCol]);
+      if (!b) return;
+      parsed++;
+      const e = agg.get(b.band) || { n: 0, ng: 0, hours: b.hours };
+      e.n++;
+      const k = String(r[resultCol] === null || r[resultCol] === undefined ? "" : r[resultCol]).trim().toUpperCase();
+      if (ngSet[k]) e.ng++;
+      agg.set(b.band, e);
+    });
+    if (parsed < 20) return { usable: false };
+    const bands = [];
+    ["上午(8-12)", "下午(12-18)", "晚班(18-22)", "夜班(22-8)"].forEach(function (k) {
+      if (agg.has(k)) {
+        const e = agg.get(k);
+        bands.push({ band: k, hours: e.hours, n: e.n, ng: e.ng, rate: e.n ? e.ng / e.n : 0 });
+      }
+    });
+    bands.sort(function (a, b) { return b.rate - a.rate; });
+    return { usable: true, bands: bands, peakBand: bands.length ? bands[0] : null };
+  }
+
+  // ---------------------------------------------------------------------
+  // 贪心决策树规则挖掘: 输出「什么条件下最可能 NG」的可读规则
+  // ---------------------------------------------------------------------
+  function buildDecisionRules(data, header, paramCols, resultCol, ngValues, opts) {
+    /**
+     * 简化 CART: 每层在候选列里选信息增益最大的二分裂
+     * (数值列取最佳阈值, 离散列按「FAIL 浓度最高的类别组 vs 其余」),
+     * 递归至深度上限 / 纯度达标。返回 [{conds:[{col,text,sign}], n, ng, rate}]
+     * opts: { maxDepth=3, minLeaf=5, pureThr=0.8, maxRules=8 }
+     */
+    opts = opts || {};
+    const maxDepth = opts.maxDepth || 3;
+    const minLeaf = opts.minLeaf || 5;
+    const pureThr = opts.pureThr || 0.8;
+    const ngSet = {};
+    (ngValues || ["NG"]).forEach(function (v) { ngSet[String(v).trim().toUpperCase()] = true; });
+    const rules = [];
+    if (!paramCols.length) return rules;
+
+    function ngOf(r) {
+      const k = String(r[resultCol] === null || r[resultCol] === undefined ? "" : r[resultCol]).trim().toUpperCase();
+      return ngSet[k] ? 1 : 0;
+    }
+    // 生成条件对象: {col, text(展示), fn(判定)}
+    function makeCond(col, text, fn) { return { col: col, text: text, fn: fn }; }
+
+    function bestSplit(col, idxs) {
+      const vals = idxs.map(function (i) { return data[i][col] === null || data[i][col] === undefined ? "" : data[i][col]; });
+      const n = idxs.length;
+      let ngTotal = 0;
+      idxs.forEach(function (i) { ngTotal += ngOf(data[i]); });
+      const p0 = ngTotal / n;
+      const ent0 = entropy(p0);
+      if (ent0 <= 0) return null;
+      let best = null;
+      function evalSplit(cond) {
+        const left = [], right = [];
+        vals.forEach(function (v, k) { if (cond.fn(v)) left.push(idxs[k]); else right.push(idxs[k]); });
+        if (left.length < minLeaf || right.length < minLeaf) return;
+        let ngl = 0;
+        left.forEach(function (i) { ngl += ngOf(data[i]); });
+        const pl = ngl / left.length, pr = (ngTotal - ngl) / right.length;
+        const condE = (left.length / n) * entropy(pl) + (right.length / n) * entropy(pr);
+        const gain = ent0 - condE;
+        if (!best || gain > best.gain) best = { gain: gain, cond: cond, left: left, right: right };
+      }
+      if (isNumericColumn(vals)) {
+        const nums = idxs.map(function (i, k) { return { v: toNumber(vals[k]), i: i }; }).filter(function (p) { return !isNaN(p.v); });
+        nums.sort(function (a, b) { return a.v - b.v; });
+        const uniq = [];
+        nums.forEach(function (p) { if (!uniq.length || uniq[uniq.length - 1].v !== p.v) uniq.push(p); });
+        for (let t = 0; t < uniq.length - 1; t++) {
+          const th = (uniq[t].v + uniq[t + 1].v) / 2;
+          const txt = col + "<=" + String(Math.round(th * 1e5) / 1e5);
+          evalSplit(makeCond(col, txt, function (v) { const nv = toNumber(v); return !isNaN(nv) && nv <= th; }));
+        }
+      } else {
+        const cat = {};
+        vals.forEach(function (v, k) { const key = v === "" ? "(空值)" : String(v); (cat[key] = cat[key] || []).push(k); });
+        const catRates = Object.keys(cat).map(function (k) {
+          let ng = 0;
+          cat[k].forEach(function (ci) { ng += ngOf(data[idxs[ci]]); });
+          return { key: k, n: cat[k].length, ng: ng, rate: ng / cat[k].length };
+        }).sort(function (a, b) { return b.rate - a.rate; });
+        const top = catRates[0];
+        if (top && top.n >= minLeaf && n - top.n >= minLeaf) {
+          const hotKeys = {};
+          catRates.forEach(function (c) { if (c.rate >= top.rate - 1e-9) hotKeys[c.key] = true; });
+          const txt = col + "∈{" + Object.keys(hotKeys).join(",") + "}";
+          evalSplit(makeCond(col, txt, function (v) { return hotKeys[v === "" ? "(空值)" : String(v)] ? true : false; }));
+        }
+      }
+      return best;
+    }
+
+    function grow(idxs, conds, depth) {
+      const n = idxs.length;
+      let ngTotal = 0;
+      idxs.forEach(function (i) { ngTotal += ngOf(data[i]); });
+      const rate = ngTotal / n;
+      // 停止: 样本太少 / 深度上限 / NG 浓度已达高纯阈值
+      if (n < minLeaf || depth >= maxDepth || rate >= pureThr) {
+        if (rate > 0.5 && ngTotal >= minLeaf) rules.push({ conds: conds.slice(), n: n, ng: ngTotal, rate: rate });
+        return;
+      }
+      let bestCol = null, bestGain = 0;
+      paramCols.forEach(function (col) {
+        const s = bestSplit(col, idxs);
+        if (s && s.gain > bestGain) { bestGain = s.gain; bestCol = s; }
+      });
+      if (!bestCol || bestGain <= 0) {
+        if (rate > 0.5 && ngTotal >= minLeaf) rules.push({ conds: conds.slice(), n: n, ng: ngTotal, rate: rate });
+        return;
+      }
+      let lNg = 0;
+      bestCol.left.forEach(function (i) { lNg += ngOf(data[i]); });
+      const rNg = ngTotal - lNg;
+      const lRate = bestCol.left.length ? lNg / bestCol.left.length : 0;
+      const rRate = bestCol.right.length ? rNg / bestCol.right.length : 0;
+      const condL = conds.concat({ col: bestCol.cond.col, text: bestCol.cond.text, sign: true });
+      const condR = conds.concat({ col: bestCol.cond.col, text: bestCol.cond.text, sign: false });
+      if (lRate >= rRate) { grow(bestCol.left, condL, depth + 1); grow(bestCol.right, condR, depth + 1); }
+      else { grow(bestCol.right, condR, depth + 1); grow(bestCol.left, condL, depth + 1); }
+    }
+
+    grow(data.map(function (_, i) { return i; }), [], 0);
+    rules.sort(function (a, b) { return b.rate - a.rate; });
+    return rules.slice(0, opts.maxRules || 8);
+  }
+
+  // ---------------------------------------------------------------------
+  // 参数两两相关(数值化标签的 Pearson): 提示"同源下游参数"
+  // ---------------------------------------------------------------------
+  function pairCorrelation(data, cols, bins, maxCardinality) {
+    /** 返回 [{a, b, r}] 强相关对(|r|>=0.5), 按 |r| 降序 */
+    bins = bins || 5;
+    maxCardinality = maxCardinality || 30;
+    const enc = {};
+    cols.forEach(function (col) {
+      const vals = data.map(function (r) { return r[col] === null || r[col] === undefined ? "" : r[col]; });
+      if (isNumericColumn(vals)) {
+        enc[col] = vals.map(toNumber);
+      } else {
+        const labels = prepareLayer(vals, bins, maxCardinality);
+        const code = {};
+        let i = 0;
+        enc[col] = labels.map(function (v) { if (!(v in code)) code[v] = ++i; return code[v]; });
+      }
+    });
+    const out = [];
+    for (let i = 0; i < cols.length; i++) {
+      for (let j = i + 1; j < cols.length; j++) {
+        const a = enc[cols[i]], b = enc[cols[j]];
+        const n = Math.min(a.length, b.length);
+        let cnt = 0, ma = 0, mb = 0;
+        for (let k = 0; k < n; k++) {
+          if (isNaN(a[k]) || isNaN(b[k])) continue;
+          ma += a[k]; mb += b[k]; cnt++;
+        }
+        if (cnt < 5) continue;
+        ma /= cnt; mb /= cnt;
+        let sxy = 0, sxx = 0, syy = 0;
+        for (let k = 0; k < n; k++) {
+          if (isNaN(a[k]) || isNaN(b[k])) continue;
+          const da = a[k] - ma, db = b[k] - mb;
+          sxy += da * db; sxx += da * da; syy += db * db;
+        }
+        if (sxx === 0 || syy === 0) continue;
+        const r = sxy / Math.sqrt(sxx * syy);
+        if (Math.abs(r) >= 0.5) out.push({ a: cols[i], b: cols[j], r: Math.round(r * 100) / 100 });
+      }
+    }
+    out.sort(function (x, y) { return Math.abs(y.r) - Math.abs(x.r); });
+    return out.slice(0, 8);
+  }
+
+  // ---------------------------------------------------------------------
   // 导出（浏览器 window 或 Node module）
   // ---------------------------------------------------------------------
   const api = {
@@ -762,6 +991,10 @@
     buildSankey: buildSankey,
     scoreColumns: scoreColumns,
     comboNgAnalysis: comboNgAnalysis,
+    dataQualityReport: dataQualityReport,
+    timeBandStats: timeBandStats,
+    buildDecisionRules: buildDecisionRules,
+    pairCorrelation: pairCorrelation,
     entropy: entropy,
     ngRatioToColorAxis: ngRatioToColorAxis,
     mixColor: mixColor,
