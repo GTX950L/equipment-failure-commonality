@@ -714,11 +714,14 @@
         item.className = "process-item";
         item.draggable = true;
         item.innerHTML = '<span class="seq">' + (i + 1) + '.</span>' + col + '<button class="rm" title="移除">✕</button>';
-        item.addEventListener("dragstart", function(){ dragIdx = i; item.style.opacity = "0.5"; });
+        item.addEventListener("dragstart", function(e){
+          dragIdx = i; item.style.opacity = "0.5";
+          if(e.dataTransfer){ e.dataTransfer.effectAllowed = "move"; try{ e.dataTransfer.setData("text/plain", String(col)); }catch(err){} }
+        });
         item.addEventListener("dragend", function(){ item.style.opacity = ""; dragIdx = -1; });
-        item.addEventListener("dragover", function(e){ e.preventDefault(); });
+        item.addEventListener("dragover", function(e){ e.preventDefault(); e.stopPropagation(); });
         item.addEventListener("drop", function(e){
-          e.preventDefault();
+          e.preventDefault(); e.stopPropagation();
           if(dragIdx < 0 || dragIdx === i) return;
           var moved = state.processOrder.splice(dragIdx, 1)[0];
           state.processOrder.splice(i, 0, moved);
@@ -2265,10 +2268,27 @@
 
   var hint = $("dropHint");
   var dragCounter = 0;
-  document.addEventListener("dragenter", function(e){ e.preventDefault(); dragCounter++; hint.classList.add("drag"); });
-  document.addEventListener("dragover", function(e){ e.preventDefault(); });
-  document.addEventListener("dragleave", function(e){ e.preventDefault(); dragCounter--; if(dragCounter<=0){ dragCounter=0; hint.classList.remove("drag"); } });
+  // 仅响应"真实文件拖拽": 工序项拖拽排序等内部 DnD 不触发文件导入提示
+  function isFileDrag(e){
+    var types = e.dataTransfer && e.dataTransfer.types;
+    if(!types) return false;
+    for(var i=0;i<types.length;i++){ if(types[i] === "Files") return true; }
+    return false;
+  }
+  document.addEventListener("dragenter", function(e){
+    if(!isFileDrag(e)) return;
+    e.preventDefault(); dragCounter++; hint.classList.add("drag");
+  });
+  document.addEventListener("dragover", function(e){
+    if(!isFileDrag(e)) return;
+    e.preventDefault();
+  });
+  document.addEventListener("dragleave", function(e){
+    if(!isFileDrag(e)) return;
+    e.preventDefault(); dragCounter--; if(dragCounter<=0){ dragCounter=0; hint.classList.remove("drag"); }
+  });
   document.addEventListener("drop", function(e){
+    if(!isFileDrag(e)) return;
     e.preventDefault();
     dragCounter = 0;
     hint.classList.remove("drag");
@@ -2386,7 +2406,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.5.0</b> · 最近更新 2026-08-16</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.5.1</b> · 最近更新 2026-08-16</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2396,6 +2416,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.5.1',date:'2026-08-16',tag:'fix',tagTxt:'修复',
+   items:['修复：拖动工序项排序时误显示「松开鼠标导入数据文件」提示——全局文件拖放监听新增 isFileDrag 判断（仅 dataTransfer.types 含 Files 才响应），工序项拖拽 stopPropagation + 显式 move 类型，与文件导入彻底隔离','实测：工序项拖拽不再触发提示、真实文件拖入仍正常导入、拖拽排序功能不受影响'],
+   sub:'拖拽冲突修复：内部 DnD 与文件拖放监听互不干扰。'},
   {ver:'v3.5.0',date:'2026-08-16',tag:'feat',tagTxt:'里程碑',
    items:['新增「🌳 决策树规则挖掘」：贪心 CART 自动输出「什么条件下最可能 NG」的可读规则（实测：封存量≤0.097 → 82/82 100% FAIL），可直接作为 FACA 结论依据','新增「📊 数据质量报告」：加载后显示每列类型/空值率/唯一值/样例 + NG 率，空值列自动预警','新增「🕐 时段/班次效应」：自动检测时间列并按日时段分组（实测：9610 夜班 NG 率 6.4% > 上午 4.8% > 下午 2.5%）','新增「🔗 强相关参数对」：|r|≥0.5 自动提示同源下游参数（实测识别出 除气后称重×VC本体-g=1 的数学恒等关系）','新增「📄 根因报告」：一键汇总数据概要/时段/决策树规则/组合线索/强相关 + 结论模板，可复制/下载 Markdown，直接贴 FACA 周会','新增「🔎 节点下钻」：点击桑基图节点显示该子集前 12 条样本明细','新增「🔁 双图对比」：同配置下两组数据并排出图（如 夜班 vs 白班、工单 A vs B），对比红色路径差异','新增「📤 导出配置」：分析快照（列选择/工序/筛选条件）打包下载','工序顺序增强：行业模板预设（9610注水除气线/注塑/SMT/电池）+ 工序项拖拽排序','新增 NG 率漂移预警：与上次载入对比，±0.5% 以上自动提示'],
    sub:'按优化路线图第一批+第二批+第三批全量实施：从"看得见"升级到"说得清"，一次补齐算法/数据/交互/工作流四层能力。'},
