@@ -36,8 +36,8 @@
 
 ## 离线使用（可选）
 
-没有网络时，把仓库里的 `web/` 文件夹拷走，双击 `sankey.html`（或 `index.html`）即可——功能与在线版完全一致。
-前提是保持 `web/` 目录结构完整（`sankey.html` 和 `lib/` 子目录必须在同一文件夹里，不能只拷一个 HTML 文件）。
+没有网络时，把仓库根目录的文件（`index.html`、`sankey.html`、`sankey_core.js`、`demo_data.js`、`lib/`）拷走，双击 `sankey.html`（或 `index.html`）即可——功能与在线版完全一致。
+前提是保持 `lib/` 子目录与 HTML 文件在同一文件夹里，不能只拷一个 HTML 文件。
 
 ---
 
@@ -78,15 +78,14 @@
 equipment-failure-commonality/
 ├── README.md
 ├── .gitignore
-├── web/                              # Web 版 (在线/离线同一套文件, 双击即用)
-│   ├── index.html                    #   入口 (自动跳转到 sankey.html)
-│   ├── sankey.html                   #   主界面
-│   ├── sankey_core.js                #   核心计算逻辑 (JS)
-│   ├── demo_data.js                  #   内置示例数据 (800 条真实记录, 供"加载示例数据"按钮)
-│   ├── lib/
-│   │   ├── plotly.min.js             #   本地绘图库 (离线可用)
-│   │   └── xlsx.full.min.js          #   本地 Excel 解析库
-│   └── test_core.js                  #   核心逻辑自测 (node test_core.js)
+├── index.html                    # 入口 (自动跳转到 sankey.html)
+├── sankey.html                   # 主界面
+├── sankey_core.js                # 核心计算逻辑 (JS)
+├── demo_data.js                  # 内置示例数据 (800 条真实记录, 供"加载示例数据"按钮)
+├── lib/
+│   ├── plotly.min.js             # 本地绘图库 (离线可用)
+│   └── xlsx.full.min.js          # 本地 Excel 解析库
+├── test_core.js                  # 核心逻辑自测 (node test_core.js)
 └── docs/
     └── sankey_web_example.png        # 静态预览图 (网页截图)
 ```
@@ -95,7 +94,7 @@ equipment-failure-commonality/
 
 ## 数据格式
 
-内置示例数据（`web/demo_data.js`，取 9610 线真实导出前 800 行）列定义（把窗口里的示例换成你自己的数据即可）：
+内置示例数据（`demo_data.js`，取 9610 线真实导出前 800 行）列定义（把窗口里的示例换成你自己的数据即可）：
 
 | 列名          | 含义                            | 样例                      |
 |---------------|---------------------------------|---------------------------|
@@ -115,7 +114,7 @@ equipment-failure-commonality/
 
 ## 代码走读（5 分钟看懂）
 
-Web 版 `web/sankey_core.js` 的核心流水线：
+Web 版 `sankey_core.js` 的核心流水线：
 
 | 步骤 | 函数 / 代码块                              | 作用                                  |
 |------|---------------------------------------------|---------------------------------------|
@@ -201,8 +200,8 @@ CPK 面板的「仅 OK / 仅 NG」两个选项是个 1 键验证：
 ## 依赖
 
 - 浏览器即可（Chrome / Edge / Firefox），**无需安装任何东西**
-- 绘图库 Plotly.js 与 Excel 解析库 SheetJS 已内置在 `web/lib/`，完全离线可用
-- 跑自测 `node web/test_core.js` 仅需 Node.js（开发验证用，不影响使用）
+- 绘图库 Plotly.js 与 Excel 解析库 SheetJS 已内置在 `lib/`，完全离线可用
+- 跑自测 `node test_core.js` 仅需 Node.js（开发验证用，不影响使用）
 
 ---
 
