@@ -646,10 +646,22 @@
     list.innerHTML = "";
     var cands = paramCandidates();
     if(!cands.length){ list.innerHTML = '<div class="empty-tip">没有可选的参数列（源列和结果列占了全部列）</div>'; return; }
+    // 筛选条: 全部 / 已勾选 / 推荐列 + 已勾选计数
+    var filterBar = document.createElement("div");
+    filterBar.className = "param-filter";
+    filterBar.style.cssText = "margin-bottom:6px;display:flex;align-items:center;gap:4px;flex-wrap:wrap";
+    filterBar.innerHTML =
+      '<span class="hint" style="margin-right:2px">筛选：</span>' +
+      '<button class="chip sel" data-f="all">全部</button>' +
+      '<button class="chip" data-f="checked">已勾选</button>' +
+      '<button class="chip" data-f="rec">推荐列</button>' +
+      '<span class="hint" id="paramCount" style="margin-left:6px"></span>';
+    list.appendChild(filterBar);
     // 按表头顺序展示（不排序、不自动勾选）
     cands.forEach(function(col){
       var label = document.createElement("label");
       label.className = "chk";
+      label.setAttribute("data-col", col);
       var cb = document.createElement("input");
       cb.type = "checkbox";
       cb.value = col;
@@ -663,6 +675,32 @@
       label.appendChild(tag);
       list.appendChild(label);
     });
+    // 筛选交互 + 计数
+    var curFilter = "all";
+    function applyParamFilter(){
+      var recSet = {};
+      (state.lastRecTop || []).forEach(function(c){ recSet[c] = true; });
+      list.querySelectorAll("label[data-col]").forEach(function(lb){
+        var cb = lb.querySelector("input");
+        var show = curFilter === "all" ||
+          (curFilter === "checked" && cb.checked) ||
+          (curFilter === "rec" && recSet[lb.getAttribute("data-col")]);
+        lb.style.display = show ? "" : "none";
+      });
+      var checkedN = list.querySelectorAll("input[type=checkbox]:checked").length;
+      var pc = $("paramCount");
+      if(pc) pc.textContent = "已勾选 " + checkedN + " 列";
+    }
+    filterBar.querySelectorAll(".chip").forEach(function(ch){
+      ch.addEventListener("click", function(){
+        curFilter = ch.getAttribute("data-f");
+        filterBar.querySelectorAll(".chip").forEach(function(c){ c.classList.toggle("sel", c === ch); });
+        applyParamFilter();
+      });
+    });
+    list.addEventListener("change", applyParamFilter);
+    applyParamFilter(); // 初始渲染计数
+    window.__syncParamCount = applyParamFilter; // 供 recommendParams / 补勾按钮在 JS 改 checked 后同步计数
     // ---- 工序顺序配置(可选): 影响推荐排序/上下游标注/桑基图层顺序 ----
     var procBox = document.createElement("div");
     procBox.className = "process-box";
@@ -675,14 +713,18 @@
     var tplBtns = '';
     Object.keys(TEMPLATES).forEach(function(k){ tplBtns += '<button class="sec" style="padding:1px 8px;font-size:11px;margin:0 3px" data-tpl="' + k + '">' + k + '</button>'; });
     procBox.innerHTML =
-      '<div class="process-title">🔀 工序顺序（可选 · 强烈建议填写）<span style="font-weight:400;font-size:11px;color:var(--muted)">预设模板：</span>' + tplBtns + '</div>' +
+      '<details id="procBoxDetails">' +
+      '<summary class="process-title" style="cursor:pointer;list-style:none">🔀 工序顺序（可选）<span class="hint" id="procSummaryHint">点开设置，提升根因定位准确度</span></summary>' +
+      '<div style="margin-top:8px">' +
+      '<div class="process-title" style="font-size:12px;font-weight:400;color:var(--muted)">预设模板：' + tplBtns + '</div>' +
       '<div class="process-row">' +
         '<select id="selProcessCol" title="按实际工序先后选择参数列，第一道工序在前"></select>' +
         '<button class="sec" id="btnAddProcess">添加 ↓</button>' +
         '<button class="sec" id="btnClearProcess">清空</button>' +
       '</div>' +
       '<div id="processList" class="process-list"></div>' +
-      '<div class="process-note">填写后：①推荐排名按工序顺序重排并标注上下游；②疑似上游根因列会标红提示；③出图时参数层自动按此顺序排列（红色分叉位置 = 工序位置）。工序项可<span style="color:#0a4f9c">拖拽</span>调整顺序。</div>';
+      '<div class="process-note">填写后：①推荐排名按工序顺序重排并标注上下游；②疑似上游根因列会标红提示；③出图时参数层自动按此顺序排列（红色分叉位置 = 工序位置）。工序项可<span style="color:#0a4f9c">拖拽</span>调整顺序。</div>' +
+      '</div></details>';
     list.appendChild(procBox);
     procBox.querySelectorAll("button[data-tpl]").forEach(function(b){
       b.addEventListener("click", function(){
@@ -704,6 +746,8 @@
     function renderProcessList(){
       var box = $("processList");
       box.innerHTML = "";
+      var hint = $("procSummaryHint");
+      if(hint) hint.textContent = state.processOrder.length ? "已设 " + state.processOrder.length + " 道工序" : "点开设置，提升根因定位准确度";
       if(!state.processOrder.length){
         box.innerHTML = '<span style="font-size:12px;color:var(--muted)">未设置。示例：注水阀 → 注水量-g → 注水后称重-g → 封存量</span>';
         return;
@@ -792,6 +836,8 @@
     document.querySelectorAll("#paramList input[type=checkbox]").forEach(function(b){
       if(top.some(function(e){ return e.col === b.value; })) b.checked = true;
     });
+    state.lastRecTop = top.map(function(e){ return e.col; });
+    if(window.__syncParamCount) window.__syncParamCount();
     setInfo("已按「NG 集中度」推荐勾选 " + autoCount + " 列: " + top.map(function(e){ return e.col; }).join(" / ") + "（可手动增删）", "ok");
     renderRecDetail(ranked, top, bins, ngVals);
   }
@@ -839,6 +885,8 @@
     var sortLabel = hasProc ? "工序顺序（括号内为 IG 分数）" : "信息增益";
     var html = '<div class="rec-card">';
     html += '<div class="rec-title">✨ 推荐排名（' + (hasProc ? "已按工序顺序重排" : "Top " + showTop.length + "，按「信息增益」排序") + '，分数 = 区分 PASS/FAIL 的能力）</div>';
+    html += '<div style="margin:6px 0"><button id="btnRecPlot" style="background:#1e4d8c;color:#fff;border:none;padding:6px 16px;font-size:13px;font-weight:600;border-radius:8px;cursor:pointer">🚀 用推荐配置一键出图</button>' +
+      '<span class="hint" style="margin-left:8px">直接按当前勾选生成桑基图，无需手动操作</span></div>';
     html += '<table class="rec-tbl"><tr><th>#</th><th>参数列</th><th>' + (hasProc ? "IG / 工序" : "IG 分数") + '</th><th>状态</th><th></th></tr>';
     showTop.forEach(function(e, i){
       var isTop = topCols.indexOf(e.col) >= 0;
@@ -852,7 +900,8 @@
       ? '已按你填写的工序顺序重排：越靠上游越可能是根因。带红色「疑似上游根因」的列比所有已勾选列都更靠前，建议补勾验证；下游高 IG 列（如封存量）通常只是症状。'
       : '分数 = 该列与 FAIL 的相关强度。靠前的往往是终检/下游"症状"参数；排名靠后但分数为正的列（如注水阀）可能是被挤掉的上游根因，建议在「🔀 工序顺序」里按实际工序填写后重新推荐。') + '</div>';
     html += '</div>';
-    // 组合线索: 未勾选列 × 已勾选列 的高 FAIL 组合
+    // 分析线索(折叠): 组合线索 / 决策树 / 时段 / 强相关 — 汇总到可展开块, 避免平铺占屏
+    var clueHtml = "", nCombo = 0, nRules = 0, nBands = 0, nPc = 0;
     var candRest = ranked.slice(autoCount).map(function(e){ return e.col; });
     if(candRest.length && topCols.length){
       var combo = SankeyCore.comboNgAnalysis({
@@ -866,25 +915,27 @@
         var comboMain = combo.filter(function(c){ return !isFault(c); });
         var comboFault = combo.filter(isFault);
         var comboShow = comboMain.slice(0, 5).concat(comboFault.slice(0, 5));
-        html += '<div class="rec-combo"><div class="rec-title">🔍 组合线索（未勾选列 × 已勾选列 的高 FAIL 组合，可能是交互根因）</div><ul>';
+        nCombo = comboShow.length;
+        clueHtml += '<div class="rec-combo"><div class="rec-title">🔍 组合线索（未勾选列 × 已勾选列 的高 FAIL 组合，可能是交互根因）</div><ul>';
         comboShow.forEach(function(c){
           var xStr = (c.x === "" || c.x === "(空值)") ? "空值" : c.x;
           var yStr = (c.y === "" || c.y === "(空值)") ? "空值" : c.y;
-          html += '<li><span class="rate">' + c.col + '=' + xStr + ' × ' + c.baseCol + '=' + yStr + ' → ' + c.ng + '/' + c.n + ' FAIL（' + Math.round(c.rate * 100) + '%）</span>　<span class="muted">单看：' + c.col + '=' + xStr + ' 仅 ' + Math.round(c.xRate * 100) + '%，' + c.baseCol + '=' + yStr + ' 为 ' + Math.round(c.yRate * 100) + '%</span></li>';
+          clueHtml += '<li><span class="rate">' + c.col + '=' + xStr + ' × ' + c.baseCol + '=' + yStr + ' → ' + c.ng + '/' + c.n + ' FAIL（' + Math.round(c.rate * 100) + '%）</span>　<span class="muted">单看：' + c.col + '=' + xStr + ' 仅 ' + Math.round(c.xRate * 100) + '%，' + c.baseCol + '=' + yStr + ' 为 ' + Math.round(c.yRate * 100) + '%</span></li>';
         });
-        html += '</ul></div>';
+        clueHtml += '</ul></div>';
       }
     }
     // 决策树规则: 什么条件下最可能 NG
     if(topCols.length){
       var rules = SankeyCore.buildDecisionRules(state.rows, state.header, topCols, resultCol(), ngVals, { maxDepth: 3, minLeaf: 5 });
       if(rules.length){
-        html += '<div class="rec-combo"><div class="rec-title">🌳 决策树规则（自动挖掘「什么条件下最可能 NG」）</div><ul>';
+        nRules = Math.min(6, rules.length);
+        clueHtml += '<div class="rec-combo"><div class="rec-title">🌳 决策树规则（自动挖掘「什么条件下最可能 NG」）</div><ul>';
         rules.slice(0, 6).forEach(function(r){
           var txt = r.conds.map(function(c){ return c.sign ? c.text : "非(" + c.text + ")"; }).join(" 且 ");
-          html += '<li><span class="rate">若 ' + txt + ' → ' + r.ng + '/' + r.n + ' FAIL（' + Math.round(r.rate * 100) + '%）</span></li>';
+          clueHtml += '<li><span class="rate">若 ' + txt + ' → ' + r.ng + '/' + r.n + ' FAIL（' + Math.round(r.rate * 100) + '%）</span></li>';
         });
-        html += '</ul><div class="rec-tip">规则按 NG 浓度排序，可直接作为 FACA 结论的依据（复制到报告）。</div></div>';
+        clueHtml += '</ul><div class="rec-tip">规则按 NG 浓度排序，可直接作为 FACA 结论的依据（复制到报告）。</div></div>';
       }
     }
     // 时段效应: 自动检测时间列
@@ -893,11 +944,12 @@
       if(timeCol){
         var tb = SankeyCore.timeBandStats(state.rows, timeCol, resultCol(), ngVals);
         if(tb.usable){
-          html += '<div class="rec-combo"><div class="rec-title">🕐 时段效应（' + timeCol + ' 按日时段分组）</div><ul>';
+          nBands = tb.bands.length;
+          clueHtml += '<div class="rec-combo"><div class="rec-title">🕐 时段效应（' + timeCol + ' 按日时段分组）</div><ul>';
           tb.bands.forEach(function(b){
-            html += '<li><span class="rate">' + b.band + '</span>　<span class="muted">' + b.n + ' 条 · NG 率 ' + (b.rate * 100).toFixed(1) + '%</span></li>';
+            clueHtml += '<li><span class="rate">' + b.band + '</span>　<span class="muted">' + b.n + ' 条 · NG 率 ' + (b.rate * 100).toFixed(1) + '%</span></li>';
           });
-          html += '</ul><div class="rec-tip">最高时段为 ' + tb.peakBand.band + '（' + (tb.peakBand.rate * 100).toFixed(1) + '%）。若显著高于其他时段，优先排查该班次/时段的设备与操作。</div></div>';
+          clueHtml += '</ul><div class="rec-tip">最高时段为 ' + tb.peakBand.band + '（' + (tb.peakBand.rate * 100).toFixed(1) + '%）。若显著高于其他时段，优先排查该班次/时段的设备与操作。</div></div>';
         }
       }
     }
@@ -905,14 +957,36 @@
     if(topCols.length >= 2){
       var pc = SankeyCore.pairCorrelation(state.rows, topCols.slice(0, 12), 5, 30);
       if(pc.length){
-        html += '<div class="rec-combo"><div class="rec-title">🔗 强相关参数对（同源提示：可能是同一根因的下游表现）</div><ul>';
+        nPc = Math.min(5, pc.length);
+        clueHtml += '<div class="rec-combo"><div class="rec-title">🔗 强相关参数对（同源提示：可能是同一根因的下游表现）</div><ul>';
         pc.slice(0, 5).forEach(function(p){
-          html += '<li><span class="rate">' + p.a + ' × ' + p.b + ' = ' + p.r + '</span></li>';
+          clueHtml += '<li><span class="rate">' + p.a + ' × ' + p.b + ' = ' + p.r + '</span></li>';
         });
-        html += '</ul></div>';
+        clueHtml += '</ul></div>';
       }
     }
+    if(clueHtml){
+      var clueParts = [];
+      if(nCombo) clueParts.push("组合 " + nCombo + " 个");
+      if(nRules) clueParts.push("规则 " + nRules + " 条");
+      if(nBands) clueParts.push("时段 " + nBands + " 段");
+      if(nPc) clueParts.push("相关 " + nPc + " 对");
+      html += '<details class="rec-clue"><summary class="rec-title" style="cursor:pointer;list-style:none;margin-top:10px">🔍 分析线索（' + clueParts.join(" · ") + '）<span class="hint" style="font-weight:400">点击展开</span></summary><div style="margin-top:6px">' + clueHtml + '</div></details>';
+    }
     holder.innerHTML = html;
+    var recPlotBtn = document.getElementById("btnRecPlot");
+    if(recPlotBtn){
+      recPlotBtn.addEventListener("click", function(){
+        var ngVals = currentNgVals();
+        if(!ngVals.length){ setInfo("请先在「哪些值算不良」勾选 NG 值", "warn"); return; }
+        $("chartArea").innerHTML = '<div class="empty-tip" style="padding:48px 20px"><div style="font-size:26px;margin-bottom:14px">⏳</div>正在加载绘图引擎…（首次约 1~3 秒）</div>';
+        ensurePlotly().then(function(){
+          plotSankey();
+          var rd = $("recDetail");
+          if(rd) rd.scrollIntoView({ block: "nearest" });
+        }).catch(function(e){ setInfo("绘图引擎加载失败：" + e.message, "warn"); });
+      });
+    }
     holder.querySelectorAll("button.rec-add").forEach(function(btn){
       btn.addEventListener("click", function(){
         var col = btn.getAttribute("data-col");
@@ -920,6 +994,7 @@
           if(b.value === col) b.checked = true;
         });
         btn.outerHTML = '<span class="rec-ok">已勾选</span>';
+        if(window.__syncParamCount) window.__syncParamCount();
         setInfo("已补勾「" + col + "」，可点「生成桑基图」查看其与已勾选列的分叉关系", "ok");
       });
     });
@@ -2406,7 +2481,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.5.1</b> · 最近更新 2026-08-16</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.6.0</b> · 最近更新 2026-08-16</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2416,6 +2491,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.6.0',date:'2026-08-16',tag:'feat',tagTxt:'优化',
+   items:['操作收敛优化（方案A）：推荐详情 4 个线索卡片（组合/决策树/时段/强相关）折叠进「🔍 分析线索」可展开块，标题显示摘要计数（如"组合 3 个 · 规则 2 条 · 时段 4 段 · 相关 5 对"），页面不再一屏铺满 5 块内容','推荐排名表新增「🚀 用推荐配置一键出图」按钮：加载引擎后直接按当前勾选生成桑基图，跳过手动点「生成桑基图」','工序顺序配置默认折叠为一行（summary 显示"已设 N 道工序"），点击展开，低频设置不再占固定版面','参数勾选列表新增筛选 chips（全部 / 已勾选 / 推荐列）+「已勾选 N 列」实时计数，33 列长列表一键过滤','加载示例数据后主流程压缩为：加载 → 智能推荐（自动勾选）→ 一键出图，三步即可出结果'],
+   sub:'针对"操作过程复杂、页面复杂"的优化：不删功能，把信息折叠、把操作提效，主流程三步出图。'},
   {ver:'v3.5.1',date:'2026-08-16',tag:'fix',tagTxt:'修复',
    items:['修复：拖动工序项排序时误显示「松开鼠标导入数据文件」提示——全局文件拖放监听新增 isFileDrag 判断（仅 dataTransfer.types 含 Files 才响应），工序项拖拽 stopPropagation + 显式 move 类型，与文件导入彻底隔离','实测：工序项拖拽不再触发提示、真实文件拖入仍正常导入、拖拽排序功能不受影响'],
    sub:'拖拽冲突修复：内部 DnD 与文件拖放监听互不干扰。'},
