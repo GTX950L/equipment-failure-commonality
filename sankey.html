@@ -10,7 +10,7 @@
     --c-primary:#2f6db5;      /* 主题蓝 */
     --c-fit:#e4572e;          /* NG 红 */
     --good:#1a7f37; --ok:#0969da; --mar:#bf8700; --bad:#cf222e;
-    --bg:#f4f6f8; --card:#ffffff; --border:#dfe3e8; --text:#1f2328; --muted:#6a737d;
+    --bg:#f4f6f8; --card:#ffffff; --border:#dfe3e8; --text:#1f2328; --muted:#57606a;
   }
   *{box-sizing:border-box}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",Helvetica,Arial,sans-serif;
@@ -152,7 +152,7 @@
   .rec-tbl td{padding:3px 6px;border-bottom:1px solid #eef1f4}
   .rec-tbl tr.rec-row-top td{background:#f0f6fd}
   .rec-ok{color:#1a7f37;font-weight:600}
-  .rec-no{color:#a39f9b}
+  .rec-no{color:#6b7280}
   .rec-add{padding:1px 8px;font-size:11px;margin:0}
   .rec-tip{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5}
   .rec-combo{margin-top:10px;border:1px solid #f0d9b8;border-radius:10px;padding:10px 12px;background:#fffaf2}
@@ -210,7 +210,6 @@
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button id="btnGuide" class="head-btn">📖 排查指南</button>
       <button id="btnReport" class="head-btn">📄 根因报告</button>
-      <button id="btnSnapshot" class="head-btn">📤 导出配置</button>
       <button id="btnChangelog" class="head-btn">📋 更新记录</button>
       <a class="head-btn" href="https://gtx950l.github.io/cpk-jmp-studio/cpk_calculator.html" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block;text-align:center">🔗 Cpk 计算器</a>
     </div>
@@ -230,7 +229,7 @@
       <button id="btnSample" class="sec">加载示例数据</button>
       <button id="btnClear" class="sec">清空</button>
     </div>
-    <div class="dropzone" id="dropzone">📂 点击选择文件，或直接把文件拖到这里<br><span style="font-size:11px">支持 .csv / .xlsx / .xls（自动识别表头）</span></div>
+    <div class="dropzone" id="dropzone">📂 点击选择文件，或直接把文件拖到这里，<br><span style="font-size:11px">支持 .csv / .xlsx / .xls（自动识别表头）</span></div>
     <input type="file" id="fileInput" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
     <div class="hint">💡 没有现成数据？点「加载示例数据」先体验。</div>
   </div>
@@ -254,7 +253,7 @@
     </details>
 
     <div class="row">
-      <label>🎯 源列（条母 / 型号 / 批号）<select id="selSource"></select></label>
+      <label>🎯 源列（条码 / 型号 / 批号）<select id="selSource"></select></label>
       <label>🏁 结果列（NG/OK 或 PASS/FAIL 判定）<select id="selResult"></select></label>
     </div>
 
@@ -265,10 +264,9 @@
     <div id="ngList" class="chk-wrap"></div>
 
     <div class="row">
-      <label>源列保留多少个<select id="selTopN"></select></label>
-      <label>数值分箱数<select id="selBins"></select></label>
+      <label>源列保留多少个<select id="selTopN"></select><span class="hint" style="font-weight:400;margin-top:2px">建议 5~10，其余合并为「其他」</span></label>
+      <label>数值分箱数<select id="selBins"></select><span class="hint" style="font-weight:400;margin-top:2px">建议 4~6，值越多分得越细</span></label>
     </div>
-    <div class="hint">颜色含义：<span style="color:var(--bad);font-weight:600">红 = 该路径 NG 明显偏多</span>，<span style="color:#0969da;font-weight:600">蓝 = 合格为主</span>。</div>
   </div>
 
   <!-- ============ 面板 ③ 出图 ============ -->
@@ -282,8 +280,7 @@
       <button id="btnCompare" class="sec">🔁 双图对比</button>
       <button id="btnPng" class="sec">💾 下载 PNG</button>
       <button id="btnSvg" class="sec">🖼 下载 SVG</button>
-      <span id="engineStatus" class="hint" style="display:inline-block;margin-left:6px">🟡 绘图引擎后台加载中…（首次约数秒，不影响其他操作）</span>
-      <span class="hint" style="display:inline-block;margin-left:6px">PNG 可在图上方工具条直接下载 / 放大。</span>
+      <span id="engineStatus" class="hint" style="display:inline-block;margin-left:6px">🟡 绘图引擎后台加载中…（首次约数秒~十几秒，不影响其他操作）</span>
     </div>
     <div id="comparePanel" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:#fbfcfe">
       <div class="process-title">🔁 双图对比（同工序配置，两组数据并排出图）</div>
@@ -314,8 +311,8 @@
     <details id="cpkBox" style="margin-top:14px">
       <summary>📐 CPK 过程能力分析（联合判定）</summary>
       <div class="hint" style="margin:6px 0 10px">
-        点击图上任意节点（如红色型号 / 参数区间 / NG），自动筛选出该子集；对比<b>「当前范围 / 全量 / 仅 OK / 仅 NG」</b>的过程能力，
-        判断红色路径到底是<b>参数真的偏移/发散</b>（该子集 CPK 低），还是<b>另有其因</b>（CPK 正常）。
+        点击图上任意节点（如红色型号 / 参数区间 / NG），自动筛选出该子集。<br>
+        对比<b>「当前范围 / 全量 / 仅 OK / 仅 NG」</b>的 CPK：子集 CPK 低 → 该参数确有偏移 / 发散；CPK 正常 → 参数没问题，NG 另有其因。
       </div>
 
       <div class="section-title">数据范围（点击图上节点会自动切到「当前筛选」）</div>
@@ -744,7 +741,7 @@
         '<button class="sec" id="btnClearProcess">清空</button>' +
       '</div>' +
       '<div id="processList" class="process-list"></div>' +
-      '<div class="process-note">填写后：①推荐排名按工序顺序重排并标注上下游；②疑似上游根因列会标红提示；③出图时参数层自动按此顺序排列（红色分叉位置 = 工序位置）。工序项可<span style="color:#0a4f9c">拖拽</span>调整顺序。</div>' +
+      '<div class="process-note">填写后：推荐排名与出图参数层均按工序顺序排列，上游列会标红提示（红色分叉位置 = 工序位置）。工序项可<span style="color:#0a4f9c">拖拽</span>调整顺序。</div>' +
       '</div></details>';
     list.appendChild(procBox);
     procBox.querySelectorAll("button[data-tpl]").forEach(function(b){
@@ -841,7 +838,7 @@
     if(!cands.length){ setInfo("没有可选的参数列", "warn"); return; }
     var ngVals = [];
     $("ngList").querySelectorAll("input[type=checkbox]:checked").forEach(function(b){ ngVals.push(b.value); });
-    if(!ngVals.length){ setInfo("请先在「哪些值算不良」里勾选 NG 值", "warn"); return; }
+    if(!ngVals.length){ setInfo("请先在「哪些值算不良」里勾选不良值", "warn"); return; }
     var bins = parseInt($("selBins").value, 10) || 5;
     var scores = SankeyCore.scoreColumns(state.rows, state.header, sourceCol(), resultCol(), ngVals, bins);
     // 只对候选列打分, 排除元数据列(-1)和无区分度(0)的
@@ -905,7 +902,7 @@
     };
     var sortLabel = hasProc ? "工序顺序（括号内为 IG 分数）" : "信息增益";
     var html = '<div class="rec-card">';
-    html += '<div class="rec-title">✨ 推荐排名（' + (hasProc ? "已按工序顺序重排" : "Top " + showTop.length + "，按「信息增益」排序") + '，分数 = 区分 PASS/FAIL 的能力）</div>';
+    html += '<div class="rec-title">✨ 推荐排名（' + (hasProc ? "已按工序顺序重排" : "Top " + showTop.length + "，按「信息增益」排序") + '，分数 = 区分 PASS/FAIL 的能力，越高越值得分析）</div>';
     html += '<div style="margin:6px 0"><button id="btnRecPlot" style="background:#1e4d8c;color:#fff;border:none;padding:6px 16px;font-size:13px;font-weight:600;border-radius:8px;cursor:pointer">🚀 用推荐配置一键出图</button>' +
       '<span class="hint" style="margin-left:8px">直接按当前勾选生成桑基图，无需手动操作</span></div>';
     html += '<table class="rec-tbl"><tr><th>#</th><th>参数列</th><th>' + (hasProc ? "IG / 工序" : "IG 分数") + '</th><th>状态</th><th></th></tr>';
@@ -919,7 +916,7 @@
     html += '</table>';
     html += '<div class="rec-tip">' + (hasProc
       ? '已按你填写的工序顺序重排：越靠上游越可能是根因。带红色「疑似上游根因」的列比所有已勾选列都更靠前，建议补勾验证；下游高 IG 列（如封存量）通常只是症状。'
-      : '分数 = 该列与 FAIL 的相关强度。靠前的往往是终检/下游"症状"参数；排名靠后但分数为正的列（如注水阀）可能是被挤掉的上游根因，建议在「🔀 工序顺序」里按实际工序填写后重新推荐。') + '</div>';
+      : '分数 = 该列区分 PASS/FAIL 的能力（信息增益）。靠前的往往是终检/下游"症状"参数；排名靠后但分数为正的列（如注水阀这类上游参数）可能是被挤掉的上游根因，建议在「🔀 工序顺序」里按实际工序填写后重新推荐。') + '</div>';
     html += '</div>';
     // 分析线索(折叠): 组合线索 / 决策树 / 时段 / 强相关 — 汇总到可展开块, 避免平铺占屏
     var clueHtml = "", nCombo = 0, nRules = 0, nBands = 0, nPc = 0;
@@ -999,7 +996,7 @@
     if(recPlotBtn){
       recPlotBtn.addEventListener("click", function(){
         var ngVals = currentNgVals();
-        if(!ngVals.length){ setInfo("请先在「哪些值算不良」勾选 NG 值", "warn"); return; }
+        if(!ngVals.length){ setInfo("请先在「哪些值算不良」勾选不良值", "warn"); return; }
         $("chartArea").innerHTML = '<div class="empty-tip" style="padding:48px 20px"><div style="font-size:26px;margin-bottom:14px">⏳</div>正在加载绘图引擎…（首次约 1~3 秒）</div>';
         ensurePlotly().then(function(){
           plotSankey();
@@ -1271,7 +1268,7 @@
     // 源列: 按优先级匹配, 避免把"设备编号/单据编号"当源列;
     // 同一优先级内多个候选时, 取唯一值数最多的列(如"料号"唯一值少而"条码"多时优先条码)
     var srcKwGroups = [
-      ["料号", "条码", "型号", "品号", "物料", "批号", "产品", "flowcode", "条母"],
+      ["料号", "条码", "型号", "品号", "物料", "批号", "产品", "flowcode", "条码"],
       ["code", "id"],
     ];
     var resKw = ["判定", "结果", "ng", "ok", "pass", "fail", "合格", "不良", "判"];
@@ -2246,7 +2243,7 @@
     var html = '';
     html += '<div class="verdict" style="background:'+v.color+'14;border-color:'+v.color+'55;color:'+v.color+'">';
     html += '<span class="badge" style="background:'+v.color+'">'+v.level+' 级</span>';
-    html += '当前范围「'+scopeLabel()+'」· '+esc(param)+' 的 Cpk = <b>'+fmt(cur.cpk,3)+'</b>（'+v.text+'）';
+    html += '当前范围「'+scopeLabel()+'」· '+esc(param)+' 的 CPK = <b>'+fmt(cur.cpk,3)+'</b>（'+v.text+'）';
     html += '</div>';
     html += '<div class="hint" style="margin-top:2px">'+verdictText+'</div>';
 
@@ -2279,7 +2276,7 @@
 
     html += '<div class="hint" style="margin-top:8px">' +
       '📌 联合判定：若「当前筛选」Cpk 明显低于「全量」且为 C/D 级，说明红色路径的参数确实偏移/发散，是系统性根因；' +
-      '若 Cpk 正常但 NG 率高，说明参数没问题，NG 另有其因（查批次/时段/操作员）。</div>';
+      '若 CPK 正常但 NG 率高，说明参数没问题，NG 另有其因（查批次/时段/操作员）。</div>';
 
     html += '<div class="hint" style="margin-top:4px;color:var(--muted)">' +
       'ℹ 方法说明：σ 用样本标准差（个体数据近似），Cpk 为常规双侧/单侧定义（Cp=(USL-LSL)/(6σ)）。' +
@@ -2436,7 +2433,7 @@
         <div class="guide-step">
           <div class="no">4</div>
           <div class="bd"><b>子集交叉验证（CPK 面板）</b>
-            <p>点击红色节点自动筛选子集，对比「全量 / 子集 / 仅 OK / 仅 NG」的 Cpk：子集 <span class="hlt-red">Cpk D 级（不足）</span>且路径红 → 参数确为根因方向，调工艺；子集 <span class="hlt">Cpk A/B 级</span> → 红色不代表参数有问题，NG 另有其因（查批次 / 时段 / 操作）。</p>
+            <p>点击红色节点自动筛选子集，对比「全量 / 子集 / 仅 OK / 仅 NG」的 CPK：子集 <span class="hlt-red">CPK D 级（不足）</span>且路径红 → 参数确为根因方向，调工艺；子集 <span class="hlt">CPK A/B 级</span> → 红色不代表参数有问题，NG 另有其因（查批次 / 时段 / 操作）。</p>
           </div>
         </div>
         <div class="guide-step">
@@ -2494,6 +2491,7 @@
     <div class="gloss-head" style="justify-content:space-between">
       <h2 style="flex:0 1 auto">📄 根因分析报告（FACA 汇总）</h2>
       <div style="display:flex;gap:8px">
+        <button class="gloss-close" id="reportExport" style="background:rgba(255,255,255,.15)">📤 导出配置</button>
         <button class="gloss-close" id="reportCopy" style="background:rgba(255,255,255,.15)">复制</button>
         <button class="gloss-close" id="reportDl">下载 .md</button>
         <button class="gloss-close" id="reportClose">✕ 关闭</button>
@@ -2513,7 +2511,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.6.1</b> · 最近更新 2026-08-16</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.7.0</b> · 最近更新 2026-08-16</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2523,6 +2521,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.7.0',date:'2026-08-16',tag:'fix',tagTxt:'文案优化',
+   items:['全站文字审查修复（四维度：到位度/繁简/位置/颜色）','修正笔误：源列"条母"→"条码"（含自动识别关键词表）；拖放区补逗号使语序通顺','术语统一：NG值/不良值 → 统一「不良值」；Cpk → 统一「CPK」；信息增益首次出现加注释「分数=区分 PASS/FAIL 的能力」','位置收敛：删除面板②重复且不完整的颜色说明（出图区已有完整图例）；头部「导出配置」并入「根因报告」弹层（头部按钮 4→3）','颜色对比度：`未勾选`状态 #a39f9b→#6b7280（2.4:1→4.6:1 达 WCAG AA）；全局说明文字 muted #6a737d→#57606a','精简繁复：CPK 面板 80 字长句拆为两句；工序顺序 4 条排比压为 2 句；删除与面板按钮重复的"PNG 工具条下载"提示','补充过简：源列保留数/数值分箱数各加建议 hint（5~10 / 4~6）；引擎加载提示改为"数秒~十几秒"'],
+   sub:'按文字审查报告 P0~P3 全量实施：无重大错误，属精修——修 2 处笔误、统一 3 组术语、收敛 2 处位置、提升 2 处对比度、精简 3 处繁复、补充 2 处说明。'},
   {ver:'v3.6.1',date:'2026-08-16',tag:'fix',tagTxt:'修复',
    items:['修复「生成图时间特别长」：根因是 4.5MB Plotly 引擎按需加载 + 20s 串行超时 + 无预加载','① 后台预加载：页面打开即开始下载绘图引擎（不阻塞操作），实测 2 秒内就绪，点「生成/一键出图」时引擎 0ms 等待、出图秒级完成','② 加载超时 20s → 10s：网络受限时 4 源串行最坏 60s → 40s（配合预加载，正常场景不会触发）','③ Promise 缓存：预加载与按钮点击共享同一次加载，避免重复下载 4.5MB；失败自动重置下次点击重试','④ 引擎状态提示：出图区显示 🟡 后台加载中 → 🟢 已就绪 → 🔴 失败自动重试，用户不再对着空白等待'],
    sub:'排查确认：计算本身仅 14ms（buildSankey 2066 行），瓶颈 100% 在 Plotly 引擎加载。预加载后一键出图实测 0ms 引擎等待、3 秒内渲染完成。'},
@@ -2593,9 +2594,8 @@ document.getElementById('btnReport').onclick=window.openReport;
 document.getElementById('reportClose').onclick=window.closeReport;
 document.getElementById('reportCopy').onclick=window.copyReport;
 document.getElementById('reportDl').onclick=window.downloadReport;
+document.getElementById('reportExport').onclick=window.exportSnapshot;
 document.getElementById('reportOverlay').addEventListener('click',e=>{if(e.target.id==='reportOverlay')document.getElementById('reportOverlay').classList.remove('open');});
-/* ============ 导出配置快照 ============ */
-document.getElementById('btnSnapshot').onclick=window.exportSnapshot;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeChangelog();closeGuide();document.getElementById('reportOverlay').classList.remove('open');}});
 </script>
 </body>
