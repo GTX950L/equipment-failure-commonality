@@ -182,6 +182,22 @@
   .guide-check li::before{content:'☐';color:#2f6db5;font-size:14px;line-height:1.3}
   .guide-note{background:#f4f8fc;border:1px solid #cfe0f2;border-radius:10px;padding:10px 14px;font-size:12.5px;color:#1e3a5f;line-height:1.65}
   .guide-note b{color:#0a4f9c}
+  /* ---- 工序顺序配置 ---- */
+  .process-box{margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:#fbfcfe}
+  .process-title{font-size:12.5px;font-weight:600;color:#1e3a5f;margin-bottom:8px}
+  .process-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .process-row select{flex:1;min-width:160px;max-width:280px}
+  .process-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;min-height:4px}
+  .process-item{display:inline-flex;align-items:center;gap:5px;background:#eaf3fb;border:1px solid #bfd9f0;color:#0a4f9c;
+                font-size:12px;font-weight:600;border-radius:16px;padding:3px 8px 3px 10px}
+  .process-item .seq{color:#185fa5;font-weight:700}
+  .process-item .rm{background:none;border:none;color:#8592a0;cursor:pointer;font-size:13px;line-height:1;padding:0 2px}
+  .process-item .rm:hover{color:#cf222e}
+  .process-note{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5}
+  .badge-up{background:#fcebeb;color:#a32d2d;border:1px solid #f09595;border-radius:10px;font-size:10px;font-weight:700;padding:1px 7px;margin-left:4px}
+  .badge-mid{background:#fff6e9;color:#c06a00;border:1px solid #f0d9b8;border-radius:10px;font-size:10px;font-weight:700;padding:1px 7px;margin-left:4px}
+  .badge-down{background:#eef1f4;color:#5f6b7a;border:1px solid #dfe3e8;border-radius:10px;font-size:10px;font-weight:700;padding:1px 7px;margin-left:4px}
+  .rec-up-tip{display:inline-block;font-size:10.5px;color:#a32d2d;background:#fcebeb;border-radius:8px;padding:1px 7px;margin-left:6px;font-weight:600}
 </style>
 </head>
 <body>
@@ -315,6 +331,7 @@
     cpkResult: null,       // 最近一次 buildSankey 结果（含节点 customdata）
     colorMode: "gradient", // gradient 科学渐变 | binary JMP 二色
     hlNode: -1,            // 当前高亮的节点索引, -1 = 未高亮
+    processOrder: [],      // 工序顺序(用户配置): 列名数组, 第一道工序在前
   };
 
   // ---------- 懒加载 Plotly / XLSX (页面秒开的关键) ----------
@@ -624,6 +641,59 @@
       label.appendChild(tag);
       list.appendChild(label);
     });
+    // ---- 工序顺序配置(可选): 影响推荐排序/上下游标注/桑基图层顺序 ----
+    var procBox = document.createElement("div");
+    procBox.className = "process-box";
+    procBox.innerHTML =
+      '<div class="process-title">🔀 工序顺序（可选 · 强烈建议填写）</div>' +
+      '<div class="process-row">' +
+        '<select id="selProcessCol" title="按实际工序先后选择参数列，第一道工序在前"></select>' +
+        '<button class="sec" id="btnAddProcess">添加 ↓</button>' +
+        '<button class="sec" id="btnClearProcess">清空</button>' +
+      '</div>' +
+      '<div id="processList" class="process-list"></div>' +
+      '<div class="process-note">填写后：①推荐排名按工序顺序重排并标注上下游；②疑似上游根因列会标红提示；③出图时参数层自动按此顺序排列（红色分叉位置 = 工序位置）。</div>';
+    list.appendChild(procBox);
+    function refreshProcessSelect(){
+      var sel = $("selProcessCol");
+      var used = {};
+      state.processOrder.forEach(function(c){ used[c] = true; });
+      var opts = paramCandidates().filter(function(c){ return !used[c]; });
+      sel.innerHTML = "";
+      if(!opts.length){ sel.appendChild(new Option("全部已添加", "")); return; }
+      opts.forEach(function(c){ sel.appendChild(new Option(c, c)); });
+    }
+    function renderProcessList(){
+      var box = $("processList");
+      box.innerHTML = "";
+      if(!state.processOrder.length){
+        box.innerHTML = '<span style="font-size:12px;color:var(--muted)">未设置。示例：注水阀 → 注水量-g → 注水后称重-g → 封存量</span>';
+        return;
+      }
+      state.processOrder.forEach(function(col, i){
+        var item = document.createElement("span");
+        item.className = "process-item";
+        item.innerHTML = '<span class="seq">' + (i + 1) + '.</span>' + col + '<button class="rm" title="移除">✕</button>';
+        item.querySelector(".rm").addEventListener("click", function(){
+          state.processOrder.splice(i, 1);
+          renderProcessList(); refreshProcessSelect();
+        });
+        box.appendChild(item);
+      });
+    }
+    $("btnAddProcess").addEventListener("click", function(){
+      var v = $("selProcessCol").value;
+      if(!v){ setInfo("请先选择要加入工序的参数列", "warn"); return; }
+      state.processOrder.push(v);
+      renderProcessList(); refreshProcessSelect();
+    });
+    $("btnClearProcess").addEventListener("click", function(){
+      state.processOrder = [];
+      renderProcessList(); refreshProcessSelect();
+    });
+    refreshProcessSelect();
+    renderProcessList();
+
     var note = document.createElement("div");
     note.className = "hint";
     note.innerHTML = '💡 参数多不知选哪些？<button class="sec" style="padding:2px 10px;font-size:12px;margin:0 4px" id="btnRecommend">✨ 智能推荐</button>' +
@@ -674,25 +744,60 @@
   }
 
   // 推荐详情: 完整排名 + 一键补勾 + 组合 FAIL 浓度线索
+  // 若有工序顺序: 排名按工序重排 + 上下游徽标 + 疑似上游根因标红
   function renderRecDetail(ranked, top, bins, ngVals){
     var holder = $("recDetail");
     if(!holder) return;
     holder.innerHTML = "";
     var autoCount = Math.min(5, ranked.length);
     var topCols = top.map(function(e){ return e.col; });
-    var showTop = ranked.slice(0, 15);
+    var po = state.processOrder || [];
+    var poIdx = {};
+    po.forEach(function(c, i){ poIdx[c] = i; });
+    var hasProc = po.length > 0;
+    // 排序: 工序中的列按工序序排前, 非工序列保持 IG 降序排后
+    var showTop;
+    if(hasProc){
+      var inProc = ranked.filter(function(e){ return (e.col in poIdx); })
+                         .sort(function(a, b){ return poIdx[a.col] - poIdx[b.col]; });
+      var notProc = ranked.filter(function(e){ return !(e.col in poIdx); });
+      showTop = inProc.concat(notProc).slice(0, 15);
+    } else {
+      showTop = ranked.slice(0, 15);
+    }
     if(!showTop.length) return;
+    var badge = function(col){
+      if(!hasProc || !(col in poIdx)) return "";
+      var pos = poIdx[col], len = po.length;
+      if(pos < len / 3) return '<span class="badge-up">上游</span>';
+      if(pos < len * 2 / 3) return '<span class="badge-mid">中游</span>';
+      return '<span class="badge-down">下游</span>';
+    };
+    // 疑似上游根因: 未勾选 且 比所有已勾选列都更靠上游(工序序)
+    var topPos = topCols.map(function(c){ return poIdx[c]; }).filter(function(x){ return x !== undefined; });
+    var earliestTopPos = topPos.length ? Math.min.apply(null, topPos) : -1;
+    var upTip = function(col, isTop){
+      if(isTop || !hasProc || !(col in poIdx)) return "";
+      if(earliestTopPos < 0 || poIdx[col] < earliestTopPos){
+        return '<span class="rec-up-tip">疑似上游根因</span>';
+      }
+      return "";
+    };
+    var sortLabel = hasProc ? "工序顺序（括号内为 IG 分数）" : "信息增益";
     var html = '<div class="rec-card">';
-    html += '<div class="rec-title">✨ 推荐排名（Top ' + showTop.length + '，按「信息增益」排序，分数 = 区分 PASS/FAIL 的能力）</div>';
-    html += '<table class="rec-tbl"><tr><th>#</th><th>参数列</th><th>IG 分数</th><th>状态</th><th></th></tr>';
+    html += '<div class="rec-title">✨ 推荐排名（' + (hasProc ? "已按工序顺序重排" : "Top " + showTop.length + "，按「信息增益」排序") + '，分数 = 区分 PASS/FAIL 的能力）</div>';
+    html += '<table class="rec-tbl"><tr><th>#</th><th>参数列</th><th>' + (hasProc ? "IG / 工序" : "IG 分数") + '</th><th>状态</th><th></th></tr>';
     showTop.forEach(function(e, i){
       var isTop = topCols.indexOf(e.col) >= 0;
       var status = isTop ? '<span class="rec-ok">已勾选</span>' : '<span class="rec-no">未勾选</span>';
       var btn = isTop ? '' : '<button class="sec rec-add" data-col="' + e.col + '">勾选</button>';
-      html += '<tr class="' + (isTop ? 'rec-row-top' : '') + '"><td>' + (i + 1) + '</td><td>' + e.col + '</td><td>' + e.s.toFixed(3) + '</td><td>' + status + '</td><td>' + btn + '</td></tr>';
+      var posTxt = hasProc && (e.col in poIdx) ? ' · 工序' + (poIdx[e.col] + 1) : '';
+      html += '<tr class="' + (isTop ? 'rec-row-top' : '') + '"><td>' + (i + 1) + '</td><td>' + e.col + badge(e.col) + upTip(e.col, isTop) + '</td><td>' + e.s.toFixed(3) + posTxt + '</td><td>' + status + '</td><td>' + btn + '</td></tr>';
     });
     html += '</table>';
-    html += '<div class="rec-tip">分数 = 该列与 FAIL 的相关强度。靠前的往往是终检/下游"症状"参数；排名靠后但分数为正的列（如注水阀）可能是被挤掉的上游根因，建议勾上对比桑基图红色分叉位置。</div>';
+    html += '<div class="rec-tip">' + (hasProc
+      ? '已按你填写的工序顺序重排：越靠上游越可能是根因。带红色「疑似上游根因」的列比所有已勾选列都更靠前，建议补勾验证；下游高 IG 列（如封存量）通常只是症状。'
+      : '分数 = 该列与 FAIL 的相关强度。靠前的往往是终检/下游"症状"参数；排名靠后但分数为正的列（如注水阀）可能是被挤掉的上游根因，建议在「🔀 工序顺序」里按实际工序填写后重新推荐。') + '</div>';
     html += '</div>';
     // 组合线索: 未勾选列 × 已勾选列 的高 FAIL 组合
     var candRest = ranked.slice(autoCount).map(function(e){ return e.col; });
@@ -858,6 +963,16 @@
     var boxes = $("paramList").querySelectorAll("input[type=checkbox]");
     boxes.forEach(function(b){ if(b.checked) params.push(b.value); });
     if(!params.length){ alert("请至少勾选 1 个工序参数列"); return; }
+    // 若配置了工序顺序: 参数层按工序先后排列(工序中的列在前按序, 未配置的列保持原顺序排后)
+    if(state.processOrder && state.processOrder.length){
+      var poMap = {};
+      state.processOrder.forEach(function(c, i){ poMap[c] = i; });
+      params.sort(function(a, b){
+        var ia = (a in poMap) ? poMap[a] : state.processOrder.length;
+        var ib = (b in poMap) ? poMap[b] : state.processOrder.length;
+        return ia - ib;
+      });
+    }
 
     var ngVals = [];
     $("ngList").querySelectorAll("input[type=checkbox]").forEach(function(b){ if(b.checked) ngVals.push(b.value); });
@@ -1839,7 +1954,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.3.0</b> · 最近更新 2026-08-16</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.4.0</b> · 最近更新 2026-08-16</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -1849,6 +1964,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.4.0',date:'2026-08-16',tag:'feat',tagTxt:'新增',
+   items:['新增「🔀 工序顺序」配置（可选）：下拉顺序点选参数列，第一道工序在前','填写工序后三处联动：①推荐排名按工序顺序重排并标注 上游/中游/下游 徽标；②比所有已勾选列更靠前的未勾选列标红「疑似上游根因」提示补勾；③生成桑基图时参数层自动按工序顺序排列（红色分叉位置直接对应工序位置）','从「找相关性」升级为「沿因果链找根因」：工序顺序是领域因果先验，弥补信息增益只认相关不认因果的缺陷（例：注水阀 IG 仅 0.115 但工序第 1，会被标为上游根因而非被淹没在第 12 名）'],
+   sub:'用户提出"把工序告诉工具就能优化推荐判断"——确认可行并实现：工序顺序 = 因果先验，推荐展示/标注/出图三层联动。'},
   {ver:'v3.3.0',date:'2026-08-16',tag:'feat',tagTxt:'新增',
    items:['新增「📖 排查指南」：FACA 五步法（定义问题→建立工序链路→读图定位分叉点→子集交叉验证→判定闭环）、三个必避陷阱（症状当根因 / 忽略组合交互 / 忽略故障分类列）、控制变量法拆解因果链、排查完成自查清单','内容基于实战教训沉淀：注水阀故障被 Top-5 截断、异常原因列被黑名单误杀、注水阀×注水量组合 100% FAIL 三个真实案例'], 
    sub:'把"如何从繁复数据中找真正根源"的方法论直接内置到工具里，随用随查。'},
