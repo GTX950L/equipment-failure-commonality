@@ -145,6 +145,22 @@
   .clog-ver-body li::marker{color:#2f6db5}
   .clog-ver-body .sub{font-size:11.5px;color:#64748b;margin-top:5px;line-height:1.5}
   @media(max-width:640px){.gloss-body{max-height:74vh}}
+  .rec-card{margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:#fbfcfe}
+  .rec-title{font-size:12.5px;font-weight:600;color:#1e3a5f;margin-bottom:8px}
+  .rec-tbl{width:100%;border-collapse:collapse;font-size:12px}
+  .rec-tbl th{text-align:left;color:var(--muted);font-weight:500;padding:3px 6px;border-bottom:1px solid var(--border);font-size:11px}
+  .rec-tbl td{padding:3px 6px;border-bottom:1px solid #eef1f4}
+  .rec-tbl tr.rec-row-top td{background:#f0f6fd}
+  .rec-ok{color:#1a7f37;font-weight:600}
+  .rec-no{color:#a39f9b}
+  .rec-add{padding:1px 8px;font-size:11px;margin:0}
+  .rec-tip{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5}
+  .rec-combo{margin-top:10px;border:1px solid #f0d9b8;border-radius:10px;padding:10px 12px;background:#fffaf2}
+  .rec-combo .rec-title{color:#854f0b}
+  .rec-combo ul{margin:4px 0 0;padding-left:18px;display:grid;gap:4px}
+  .rec-combo li{font-size:12px;line-height:1.55;color:#412402}
+  .rec-combo .rate{color:#a32d2d;font-weight:600}
+  .rec-combo .muted{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -595,13 +611,21 @@
     $("btnRecommend").addEventListener("click", recommendParams);
     $("btnClearParams").addEventListener("click", function(){
       list.querySelectorAll("input[type=checkbox]").forEach(function(b){ b.checked = false; });
+      var rd = $("recDetail");
+      if(rd) rd.innerHTML = "";
       setInfo("已清空全部参数勾选", "ok");
     });
+    // 推荐详情容器: 排名明细 + 组合线索（由 recommendParams 填充）
+    var rec = document.createElement("div");
+    rec.id = "recDetail";
+    list.appendChild(rec);
   }
 
   // ---------- 智能推荐参数列: 自动分析 NG 集中在哪 ----------
   // 用信息增益给每个候选参数列打分(区分 NG/OK 的能力), 自动勾选 Top-N。
   // 计算在 sankey_core.scoreColumns 里完成, 大表自动采样最多 3000 行, 毫秒级不卡页面。
+  // 勾选后还会展示: ①完整排名(避免"注水阀第10名"这类上游根因被静默截断)
+  //                ②组合 FAIL 浓度线索(单列都不高、组合后 FAIL 率飙升的交互根因)
   function recommendParams(){
     var cands = paramCandidates();
     if(!cands.length){ setInfo("没有可选的参数列", "warn"); return; }
@@ -624,6 +648,64 @@
       if(top.some(function(e){ return e.col === b.value; })) b.checked = true;
     });
     setInfo("已按「NG 集中度」推荐勾选 " + autoCount + " 列: " + top.map(function(e){ return e.col; }).join(" / ") + "（可手动增删）", "ok");
+    renderRecDetail(ranked, top, bins, ngVals);
+  }
+
+  // 推荐详情: 完整排名 + 一键补勾 + 组合 FAIL 浓度线索
+  function renderRecDetail(ranked, top, bins, ngVals){
+    var holder = $("recDetail");
+    if(!holder) return;
+    holder.innerHTML = "";
+    var autoCount = Math.min(5, ranked.length);
+    var topCols = top.map(function(e){ return e.col; });
+    var showTop = ranked.slice(0, 15);
+    if(!showTop.length) return;
+    var html = '<div class="rec-card">';
+    html += '<div class="rec-title">✨ 推荐排名（Top ' + showTop.length + '，按「信息增益」排序，分数 = 区分 PASS/FAIL 的能力）</div>';
+    html += '<table class="rec-tbl"><tr><th>#</th><th>参数列</th><th>IG 分数</th><th>状态</th><th></th></tr>';
+    showTop.forEach(function(e, i){
+      var isTop = topCols.indexOf(e.col) >= 0;
+      var status = isTop ? '<span class="rec-ok">已勾选</span>' : '<span class="rec-no">未勾选</span>';
+      var btn = isTop ? '' : '<button class="sec rec-add" data-col="' + e.col + '">勾选</button>';
+      html += '<tr class="' + (isTop ? 'rec-row-top' : '') + '"><td>' + (i + 1) + '</td><td>' + e.col + '</td><td>' + e.s.toFixed(3) + '</td><td>' + status + '</td><td>' + btn + '</td></tr>';
+    });
+    html += '</table>';
+    html += '<div class="rec-tip">分数 = 该列与 FAIL 的相关强度。靠前的往往是终检/下游"症状"参数；排名靠后但分数为正的列（如注水阀）可能是被挤掉的上游根因，建议勾上对比桑基图红色分叉位置。</div>';
+    html += '</div>';
+    // 组合线索: 未勾选列 × 已勾选列 的高 FAIL 组合
+    var candRest = ranked.slice(autoCount).map(function(e){ return e.col; });
+    if(candRest.length && topCols.length){
+      var combo = SankeyCore.comboNgAnalysis({
+        data: state.rows, candCols: candRest, baseCols: topCols,
+        resultCol: resultCol(), ngValues: ngVals, bins: bins
+      });
+      if(combo.length){
+        // 故障分类列(异常原因/错误代码)与工艺参数组合会刷屏, 单独放后面
+        var faultKw = ["异常原因", "错误代码"];
+        var isFault = function(c){ return faultKw.indexOf(c.baseCol) >= 0 || faultKw.indexOf(c.col) >= 0; };
+        var comboMain = combo.filter(function(c){ return !isFault(c); });
+        var comboFault = combo.filter(isFault);
+        var comboShow = comboMain.slice(0, 5).concat(comboFault.slice(0, 5));
+        html += '<div class="rec-combo"><div class="rec-title">🔍 组合线索（未勾选列 × 已勾选列 的高 FAIL 组合，可能是交互根因）</div><ul>';
+        comboShow.forEach(function(c){
+          var xStr = (c.x === "" || c.x === "(空值)") ? "空值" : c.x;
+          var yStr = (c.y === "" || c.y === "(空值)") ? "空值" : c.y;
+          html += '<li><span class="rate">' + c.col + '=' + xStr + ' × ' + c.baseCol + '=' + yStr + ' → ' + c.ng + '/' + c.n + ' FAIL（' + Math.round(c.rate * 100) + '%）</span>　<span class="muted">单看：' + c.col + '=' + xStr + ' 仅 ' + Math.round(c.xRate * 100) + '%，' + c.baseCol + '=' + yStr + ' 为 ' + Math.round(c.yRate * 100) + '%</span></li>';
+        });
+        html += '</ul></div>';
+      }
+    }
+    holder.innerHTML = html;
+    holder.querySelectorAll("button.rec-add").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var col = btn.getAttribute("data-col");
+        document.querySelectorAll("#paramList input[type=checkbox]").forEach(function(b){
+          if(b.value === col) b.checked = true;
+        });
+        btn.outerHTML = '<span class="rec-ok">已勾选</span>';
+        setInfo("已补勾「" + col + "」，可点「生成桑基图」查看其与已勾选列的分叉关系", "ok");
+      });
+    });
   }
 
   function renderNg(){
@@ -1661,6 +1743,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.2.0',date:'2026-08-16',tag:'fix',tagTxt:'修复',
+   items:['智能推荐修复：列名黑名单不再误杀「故障分类列」——异常原因 / 错误代码 等（同时含 异常/错误 + 原因/代码）从 -1 排除改为参与评分推荐（实测 IG≈1.0，排第 1），直接暴露「封存量NG / 注水NG / 真空NG」等故障证据','智能推荐新增「完整排名面板」：展示 Top-15 信息增益排名与分数，被 Top-5 截断的上游根因列（如注水阀）不再被静默丢弃，可一键补勾','新增「组合线索」分析：对未勾选列 × 已勾选列 枚举高 FAIL 浓度组合，捞回单列都不高、组合后 FAIL 率飙升的交互根因（实测命中：注水阀=1/2 档 × 注水量低桶 → 77.8%~100% FAIL）'],
+   sub:'针对"注水阀故障被智能推荐漏掉"的根因修复：相关性≠因果性，用排名可见性 + 组合浓度 + 故障分类列放行三层补齐。'},
   {ver:'v3.1.0',date:'2026-08-16',tag:'fix',tagTxt:'修复',
    items:['修复链路染色严重 Bug：原用左侧节点 NG 轴值，流入 FAIL / PASS 的同源链路颜色相同会误导分析；改为按目标节点（下游 NG 浓度）染色，流入 FAIL 红 / 流入 PASS 蓝','分箱升级为 1%/99% 分位截尾（Winsorize），偏态/离群数据不再拉宽主区间；超出范围的值归入 <lo / >hi 异常桶','新增「智能推荐参数列」：加载后自动按信息增益分析 NG 集中度并勾选 Top-5，大表采样 3000 行毫秒级完成','新增「📋 更新记录」按钮（参照 cpk-jmp-studio 风格），头部与模态框视觉全面升级'],
    sub:'本版为 2026-08-16 全量审查修复：发现并修复链路染色计算 Bug + 分箱科学性 Bug，并补齐智能推荐与版本历史。'},

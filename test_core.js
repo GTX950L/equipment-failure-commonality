@@ -1,7 +1,7 @@
 /**
  * test_core.js — 验证 sankey_core.js 的核心逻辑
  * 用法: node test_core.js
- * 用内置示例数据 (web/demo_data.js 的 DEMO_CSV) 跑一遍，并输出关键统计供核对。
+ * 用内置示例数据 (demo_data.js 的 DEMO_CSV) 跑一遍，并输出关键统计供核对。
  * demo 数据为 9610 线真实导出 (800 行, 33 列), 结果值为 PASS/FAIL。
  */
 "use strict";
@@ -10,7 +10,7 @@ const fs = require("fs");
 const path = require("path");
 const core = require("./sankey_core.js");
 
-// 直接从内置示例 (web/demo_data.js 的 DEMO_CSV) 读取, 不再依赖外部 CSV 文件
+// 直接从内置示例 (demo_data.js 的 DEMO_CSV) 读取, 不再依赖外部 CSV 文件
 function loadDemoCsv() {
   const src = fs.readFileSync(path.join(__dirname, "demo_data.js"), "utf-8");
   const m = src.match(/DEMO_CSV\s*=\s*"([\s\S]*?)"\s*;/);
@@ -139,6 +139,11 @@ const metaCols = ["测试时间", "设备编号", "车间", "线别", "工单", 
 metaCols.forEach(function (c) {
   assert.strictEqual(scores[c], -1, c + " 应被排除 (-1)");
 });
+// 故障分类列(异常原因/错误代码)应放行 —— 修复点: 不再被"异常/错误"黑名单误杀
+const faultCols = ["异常原因", "错误代码"];
+faultCols.forEach(function (c) {
+  assert.ok(scores[c] !== undefined && scores[c] > 0, c + " 应放行且为正分: " + scores[c]);
+});
 // 整数低基数列当离散档位处理 (如注水阀 1/2/3/4 不应分箱成区间)
 const gearVals = ["1", "1", "2", "3", "3", "4", "1", "2", "3", "4"];
 const gearPrep = core.prepareLayer(gearVals, 5, 30);
@@ -198,6 +203,27 @@ const layer2Idx = new Set(conflictResult.layers[2].indices);
 assert.ok([...layer1Idx].every(function (i) { return !layer2Idx.has(i); }),
   "跨层同 label 必须为不同节点(复合键)");
 
+// ============ comboNgAnalysis (组合 FAIL 浓度) 断言 ============
+const combos = core.comboNgAnalysis({
+  data: data,
+  candCols: ["注水阀", "除气温度"],
+  baseCols: ["注水量-g", "封存量"],
+  resultCol: RESULT, ngValues: NG, bins: 5,
+});
+assert.ok(Array.isArray(combos), "comboNgAnalysis 应返回数组");
+assert.ok(combos.length > 0, "真实数据应能找到至少一个高 FAIL 组合");
+combos.forEach(function (c) {
+  assert.ok(c.n >= 5, "组合样本数应 >= minN");
+  assert.ok(c.rate > 0.1, "组合 FAIL 率应显著高于基线");
+  assert.ok(c.x !== undefined && c.y !== undefined && c.baseCol, "组合应含 x/y/baseCol 字段");
+});
+// 组合线索应能命中"注水阀 × 注水量"这类交互根因
+const comboOfValve = combos.filter(function (c) { return c.col === "注水阀"; });
+console.log("\n组合线索(前5条):");
+combos.slice(0, 5).forEach(function (c) {
+  console.log("  " + c.col + "=" + c.x + " × " + c.baseCol + "=" + c.y + " → " + c.ng + "/" + c.n + " (" + Math.round(c.rate * 100) + "%)");
+});
+
 // ============ calcCpK 断言 ============
 // 已知数据集: 1..20, 均值 10.5, sd≈5.92, 规格 8~12
 const nums = [];
@@ -223,4 +249,4 @@ assert.strictEqual(core.verdictForCpk(1.2).level, "C");
 assert.strictEqual(core.verdictForCpk(1.5).level, "B");
 assert.strictEqual(core.verdictForCpk(2.0).level, "A");
 
-console.log("\n✅ 全部断言通过 (含 calcCpK / verdictForCpk)");
+console.log("\n✅ 全部断言通过 (含 calcCpK / verdictForCpk / comboNgAnalysis / 故障分类列放行)");

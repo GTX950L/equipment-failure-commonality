@@ -604,11 +604,17 @@
       "user", "name", "设备", "车间", "线别", "部门", "站点", "通道",
       "异常", "错误", "code", "retest", "rework", "复测", "返工", "操作员",
     ];
+    // 故障分类列例外: 列名同时含「故障信号词」与「分类特征词」(如 异常原因 / 错误代码 / 不良类别)
+    // 这类列是"问题到底出在哪"的直接证据, 不能被黑名单一刀切排除。
+    const faultClassKw = ["原因", "代码", "类别", "分类", "说明", "描述", "备注", "类型"];
+    const faultSignalKw = ["异常", "错误", "不良", "ng", "fail", "reject", "defect", "缺陷", "rework", "复测"];
     const scores = {};
     header.forEach(function (col) {
       if (col === sourceCol || col === resultCol) { scores[col] = -1; return; }
       const low = String(col).toLowerCase();
-      if (excludeKw.some(function (k) { return low.indexOf(k) >= 0; })) { scores[col] = -1; return; }
+      const isFaultClass = faultClassKw.some(function (k) { return low.indexOf(k) >= 0; }) &&
+                           faultSignalKw.some(function (k) { return low.indexOf(k) >= 0; });
+      if (!isFaultClass && excludeKw.some(function (k) { return low.indexOf(k) >= 0; })) { scores[col] = -1; return; }
 
       const vals = data.map(function (r) {
         return r[col] === null || r[col] === undefined ? "" : r[col];
@@ -643,6 +649,107 @@
   }
 
   // ---------------------------------------------------------------------
+  // 组合 FAIL 浓度分析: 找出「单看都不高、合在一起 FAIL 率飙升」的交互根因
+  // ---------------------------------------------------------------------
+  function comboNgAnalysis(opts) {
+    /**
+     * 对「候选列 X 的每个类别 × 基准列 Y 的每个标签」统计组合 FAIL 浓度。
+     * 用于把被信息增益漏掉的"组合/交互根因"捞回来 —— 例如注水阀=1/2档本身
+     * FAIL 率只有 8.8%/10.7%, 注水量低桶 100% FAIL, 但"注水阀=1档 × 注水量低桶"
+     * 的组合会以 100% FAIL 浓度出现, 且与任一单列都有可观测差异。
+     *
+     * opts:
+     *   data: object[]          行数据
+     *   candCols: string[]      候选列(通常是未勾选的参数列)
+     *   baseCols: string[]      基准列(通常是已勾选的参数列)
+     *   resultCol: string       结果列
+     *   ngValues: string[]      视为 NG 的值
+     *   bins: number            数值分箱数(默认 5)
+     *   maxCardinality: number  离散列最大类别数(默认 30)
+     *   minN: number            组合最小样本数, 低于此不提示(默认 5)
+     *   rateThr: number         基准列"危险标签"阈值: FAIL 率 >= max(rateThr, 基线×2) 才参与组合(默认 0.15)
+     *   maxResults: number      返回组合数上限(默认 12)
+     * 返回: [{x, y, baseCol, n, ng, rate, xRate, yRate}]
+     *   x = 候选列类别, y = 基准列标签, xRate = 该 x 单独 FAIL 率, yRate = 该 y 单独 FAIL 率
+     */
+    const data = opts.data;
+    const candCols = opts.candCols || [];
+    const baseCols = opts.baseCols || [];
+    const resultCol = opts.resultCol;
+    const ngValues = (opts.ngValues || ["NG"]).map(function (v) { return String(v).trim().toUpperCase(); });
+    const bins = opts.bins || 5;
+    const maxCardinality = opts.maxCardinality || 30;
+    const minN = opts.minN || 5;
+    const rateThr = opts.rateThr || 0.15;
+    if (!data.length || !candCols.length || !baseCols.length || !resultCol) return [];
+
+    const n = data.length;
+    const isNg = data.map(function (r) {
+      const key = String(r[resultCol] === null || r[resultCol] === undefined ? "" : r[resultCol]).trim().toUpperCase();
+      return ngValues.indexOf(key) >= 0 ? 1 : 0;
+    });
+    const baseline = isNg.reduce(function (a, b) { return a + b; }, 0) / n;
+    const dangerThr = Math.max(rateThr, baseline * 2);
+
+    function prep(col) {
+      const vals = data.map(function (r) { return r[col] === null || r[col] === undefined ? "" : r[col]; });
+      return prepareLayer(vals, bins, maxCardinality);
+    }
+    function stat(list) {
+      const map = new Map();
+      list.forEach(function (lab, i) {
+        const e = map.get(lab) || { n: 0, ng: 0 };
+        e.n++;
+        e.ng += isNg[i];
+        map.set(lab, e);
+      });
+      return map;
+    }
+
+    const out = [];
+    candCols.forEach(function (cc) {
+      const cLabels = prep(cc);
+      const cStat = stat(cLabels);
+      baseCols.forEach(function (bc) {
+        if (cc === bc) return;
+        const bLabels = prep(bc);
+        const bStat = stat(bLabels);
+        // 基准列里 FAIL 浓度达标的"危险标签"
+        const dangerY = [];
+        bStat.forEach(function (e, y) {
+          if (e.n >= minN && e.ng / e.n >= dangerThr) dangerY.push(y);
+        });
+        if (!dangerY.length) return;
+        // 候选列类别 × 危险标签 组合计数
+        const combo = new Map();
+        cLabels.forEach(function (x, i) {
+          const y = bLabels[i];
+          if (dangerY.indexOf(y) < 0) return;
+          const key = x + "\u0000" + y;
+          const e = combo.get(key) || { n: 0, ng: 0 };
+          e.n++;
+          e.ng += isNg[i];
+          combo.set(key, e);
+        });
+        combo.forEach(function (e, key) {
+          if (e.n < minN || e.ng / e.n < dangerThr) return;
+          const idx = key.indexOf("\u0000");
+          const x = key.slice(0, idx), y = key.slice(idx + 1);
+          const xs = cStat.get(x), ys = bStat.get(y);
+          out.push({
+            col: cc, x: x, y: y, baseCol: bc,
+            n: e.n, ng: e.ng, rate: e.ng / e.n,
+            xRate: xs ? xs.ng / xs.n : 0,
+            yRate: ys ? ys.ng / ys.n : 0,
+          });
+        });
+      });
+    });
+    out.sort(function (a, b) { return b.rate - a.rate; });
+    return out.slice(0, opts.maxResults || 12);
+  }
+
+  // ---------------------------------------------------------------------
   // 导出（浏览器 window 或 Node module）
   // ---------------------------------------------------------------------
   const api = {
@@ -654,6 +761,7 @@
     prepareLayer: prepareLayer,
     buildSankey: buildSankey,
     scoreColumns: scoreColumns,
+    comboNgAnalysis: comboNgAnalysis,
     entropy: entropy,
     ngRatioToColorAxis: ngRatioToColorAxis,
     mixColor: mixColor,
