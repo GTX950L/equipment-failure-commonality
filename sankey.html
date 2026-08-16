@@ -1157,23 +1157,13 @@
     var params = [];
     var boxes = $("paramList");
     if(boxes) boxes.querySelectorAll("input[type=checkbox]:checked").forEach(function(b){ params.push(b.value); });
-    lines.push("分析参数（" + params.length + " 列）：" + (params.join(" → ") || "未勾选"));
+    var paramSep = (state.processOrder && state.processOrder.length) ? " → " : "、";
+    lines.push("分析参数（" + params.length + " 列）：" + (params.join(paramSep) || "未勾选"));
     // 工序
     if(state.processOrder && state.processOrder.length) lines.push("工序顺序：" + state.processOrder.join(" → "));
-    // 时段效应
+    // 决策树规则（证据由强到弱：规则 → 组合 → 相关 → 时段）
     lines.push("");
-    lines.push("## 一、时段 / 班次效应");
-    var timeCol = state.header.filter(function(c){ return /时间|时刻|date|time/i.test(c) && c !== resultCol(); })[0];
-    if(timeCol){
-      var tb = SankeyCore.timeBandStats(state.rows, timeCol, resultCol(), ngVals.length ? ngVals : ["FAIL"]);
-      if(tb.usable){
-        tb.bands.forEach(function(b){ lines.push("- " + b.band + "：" + b.n + " 条，NG 率 " + (b.rate * 100).toFixed(1) + "%"); });
-        lines.push("**结论**：" + tb.peakBand.band + " NG 率最高（" + (tb.peakBand.rate * 100).toFixed(1) + "%），若显著高于其他时段，优先排查该班次/时段的设备与操作。");
-      } else lines.push("时间列「" + timeCol + "」可解析样本过少，未做时段分析。");
-    } else lines.push("未检测到时间列，跳过时段分析。");
-    // 决策树规则
-    lines.push("");
-    lines.push("## 二、决策树规则（什么条件下最可能 NG）");
+    lines.push("## 一、决策树规则（什么条件下最可能 NG）");
     if(params.length){
       var rules = SankeyCore.buildDecisionRules(state.rows, state.header, params, resultCol(), ngVals.length ? ngVals : ["FAIL"]);
       if(rules.length){
@@ -1185,24 +1175,43 @@
     } else lines.push("未勾选参数列，跳过规则挖掘。");
     // 组合线索
     lines.push("");
-    lines.push("## 三、组合线索（交互根因）");
+    lines.push("## 二、组合线索（交互根因）");
     if(params.length && ngVals.length){
       var combo = SankeyCore.comboNgAnalysis({ data: state.rows, candCols: params, baseCols: params, resultCol: resultCol(), ngValues: ngVals, bins: parseInt($("selBins") ? $("selBins").value : 5, 10) });
       if(combo.length){
-        combo.slice(0, 8).forEach(function(c){
+        // 与推荐面板一致: 故障分类列(异常原因/错误代码)的组合放后面, 避免刷屏冲淡工艺组合
+        var faultKw = ["异常原因", "错误代码"];
+        var isFault = function(c){ return faultKw.indexOf(c.baseCol) >= 0 || faultKw.indexOf(c.col) >= 0; };
+        var comboShow = combo.filter(function(c){ return !isFault(c); }).slice(0, 5).concat(combo.filter(isFault).slice(0, 3));
+        comboShow.forEach(function(c){
           lines.push("- " + c.col + "=" + c.x + " × " + c.baseCol + "=" + c.y + " → " + c.ng + "/" + c.n + " FAIL（" + Math.round(c.rate * 100) + "%）");
         });
       } else lines.push("未发现显著组合。");
     } else lines.push("未勾选参数列，跳过组合分析。");
     // 同源参数
     lines.push("");
-    lines.push("## 四、强相关参数对（同源提示）");
+    lines.push("## 三、强相关参数对（同源提示）");
     if(params.length >= 2){
       var pc = SankeyCore.pairCorrelation(state.rows, params.slice(0, 12), 5, 30);
       if(pc.length){
         pc.forEach(function(p){ lines.push("- " + p.a + " × " + p.b + " = " + p.r + "（|r|≥0.5，可能是同一根因的下游表现）"); });
       } else lines.push("未发现 |r|≥0.5 的强相关对。");
-    }
+    } else lines.push("参数少于 2 列，跳过同源分析。");
+    // 时段效应
+    lines.push("");
+    lines.push("## 四、时段 / 班次效应");
+    var timeCol = state.header.filter(function(c){ return /时间|时刻|date|time/i.test(c) && c !== resultCol(); })[0];
+    if(timeCol){
+      var tb = SankeyCore.timeBandStats(state.rows, timeCol, resultCol(), ngVals.length ? ngVals : ["FAIL"]);
+      if(tb.usable){
+        tb.bands.forEach(function(b){ lines.push("- " + b.band + "：" + b.n + " 条，NG 率 " + (b.rate * 100).toFixed(1) + "%"); });
+        var sortedBands = tb.bands.slice().sort(function(a, b){ return b.rate - a.rate; });
+        var secondBand = sortedBands.length > 1 ? sortedBands[1] : null;
+        lines.push("**结论**：" + tb.peakBand.band + " NG 率最高（" + (tb.peakBand.rate * 100).toFixed(1) + "%）" +
+          (secondBand ? "，次高 " + secondBand.band + " " + (secondBand.rate * 100).toFixed(1) + "%" : "") +
+          "；若显著高于其他时段，优先排查该班次/时段的设备与操作。");
+      } else lines.push("时间列「" + timeCol + "」可解析样本过少，未做时段分析。");
+    } else lines.push("未检测到时间列，跳过时段分析。");
     // 结论模板
     lines.push("");
     lines.push("## 五、结论与措施");
@@ -2415,7 +2424,7 @@
         <div class="guide-step">
           <div class="no">1</div>
           <div class="bd"><b>定义问题</b>
-            <p>明确结果列与 NG 判定标准（自动识别 FAIL / NG / 不良，多值取少数派）。记录整体 NG 率；<span class="hlt">NG 样本建议 ≥ 30 条</span>，更少时结论仅供趋势参考。</p>
+            <p>明确结果列与 NG 判定标准（自动识别 FAIL / NG / 不良，结果列存在多个取值时自动取少数派，通常即 NG 类）。记录整体 NG 率；<span class="hlt">NG 样本建议 ≥ 30 条</span>，更少时结论仅供趋势参考。</p>
           </div>
         </div>
         <div class="guide-step">
@@ -2427,7 +2436,7 @@
         <div class="guide-step">
           <div class="no">3</div>
           <div class="bd"><b>读图定位分叉点</b>
-            <p>节点 / 链路越红 = 该取值 FAIL 占比越高。<span class="hlt-red">红色分叉的起点层，是根因所在层的下游第一站</span>——从最红的分叉点开始，逐层向上游（向源列方向）排查。</p>
+            <p>节点 / 链路越红 = 该取值 FAIL 占比越高。<span class="hlt-red">红色分叉的起点层，通常是根因的下游第一站</span>——沿该层继续向源列方向逐层排查，红色分叉最早出现的那一层，即为根因所在。</p>
           </div>
         </div>
         <div class="guide-step">
@@ -2456,7 +2465,7 @@
         </div>
         <div class="guide-trap">
           <div class="tt">陷阱三：忽略「故障分类列」</div>
-          <p>「异常原因 / 错误代码」类列直接记录问题出在哪（封存量NG / 注水NG / 真空NG），是最直接的证据。智能推荐已将其放行至第 1、2 名，务必查看；若表中没有此类列，需从设备日志 / 维修记录补数据。</p>
+          <p>「异常原因 / 错误代码」类列直接记录问题出在哪（封存量NG / 注水NG / 真空NG），是最直接的证据。智能推荐已将其放行至前两名，务必查看；若表中没有此类列，需从设备日志 / 维修记录补数据。</p>
         </div>
       </div>
 
@@ -2511,7 +2520,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.7.0</b> · 最近更新 2026-08-16</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.7.1</b> · 最近更新 2026-08-16</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2521,6 +2530,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.7.1',date:'2026-08-16',tag:'fix',tagTxt:'文案优化',
+   items:['排查指南三处精修：步骤1「多值取少数派」补解释（通常即 NG 类）；步骤3红色分叉表述理顺（起点层=根因下游第一站，沿上游找到最早分叉层）；陷阱三「放行至第 1、2 名」→「前两名」','根因报告章节按证据强度重排：决策树规则（一）→ 组合线索（二）→ 强相关参数对（三）→ 时段/班次效应（四）→ 结论与措施（五），读报告即可沿「规则→交互→同源→环境」逐层定位','参数行显示优化：设置了工序顺序才用箭头「→」，否则用顿号分隔，避免误导为工序流','组合线索章节增加故障分类列过滤（与推荐面板一致）：「异常原因/错误代码」类组合移到末尾，避免刷屏冲淡工艺交互根因','补全边界：强相关章节在参数不足 2 列时输出「参数少于 2 列，跳过同源分析」提示（原为空白章节）；时段结论追加「次高时段」对比数据'],
+   sub:'延续 v3.7.0 文字审查：本次聚焦排查指南与根因报告两个弹层的文案质量与报告逻辑，共 8 处精修。'},
   {ver:'v3.7.0',date:'2026-08-16',tag:'fix',tagTxt:'文案优化',
    items:['全站文字审查修复（四维度：到位度/繁简/位置/颜色）','修正笔误：源列"条母"→"条码"（含自动识别关键词表）；拖放区补逗号使语序通顺','术语统一：NG值/不良值 → 统一「不良值」；Cpk → 统一「CPK」；信息增益首次出现加注释「分数=区分 PASS/FAIL 的能力」','位置收敛：删除面板②重复且不完整的颜色说明（出图区已有完整图例）；头部「导出配置」并入「根因报告」弹层（头部按钮 4→3）','颜色对比度：`未勾选`状态 #a39f9b→#6b7280（2.4:1→4.6:1 达 WCAG AA）；全局说明文字 muted #6a737d→#57606a','精简繁复：CPK 面板 80 字长句拆为两句；工序顺序 4 条排比压为 2 句；删除与面板按钮重复的"PNG 工具条下载"提示','补充过简：源列保留数/数值分箱数各加建议 hint（5~10 / 4~6）；引擎加载提示改为"数秒~十几秒"'],
    sub:'按文字审查报告 P0~P3 全量实施：无重大错误，属精修——修 2 处笔误、统一 3 组术语、收敛 2 处位置、提升 2 处对比度、精简 3 处繁复、补充 2 处说明。'},
