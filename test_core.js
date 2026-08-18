@@ -95,7 +95,7 @@ assert.strictEqual(firstLayer, 800, "第一层链路应为 800");
 assert.ok(result.nodes.label.includes("FAIL"), "应包含 FAIL 节点");
 assert.ok(result.nodes.label.includes("PASS"), "应包含 PASS 节点");
 assert.strictEqual(result.nodes.customdata.length, result.nodes.label.length, "customdata 应与节点数一致");
-assert.strictEqual(result.nodes.customdata[0].length, 7, "customdata 应为 [占比, 层索引, 列名, 筛选用值, 样本数n, 数, 完整取值]");
+assert.strictEqual(result.nodes.customdata[0].length, 8, "customdata 应为 [占比, 层索引, 列名, 筛选用值, 样本数n, NG数, 完整取值, 小样本警示]");
 // 二色模式
 const resultBinary = core.buildSankey({
   data: data, sourceCol: SOURCE,

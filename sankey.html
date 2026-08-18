@@ -1257,7 +1257,7 @@
       var ngVals = currentNgVals();
       var snap = {
         app: "equipment-failure-commonality",
-        version: "v3.7.3",
+        version: "v3.7.4",
         time: new Date().toISOString(),
         source: sourceCol(), result: resultCol(), ng: ngVals, params: params,
         processOrder: state.processOrder || [],
@@ -1430,7 +1430,8 @@
         },
         link: {
           source: res.links.source, target: res.links.target, value: res.links.value,
-          color: res.links.color, hoverinfo: "none",
+          color: res.links.color,
+          hovertemplate: "%{source.label} → %{target.label}<br>样本数: %{value}<extra></extra>",
         },
       };
       var layout = {
@@ -1499,16 +1500,8 @@
       };
     });
 
-    // per-node hover 模板: n<5 的小样本节点追加"样本不足"警示, 与灰色染色呼应
-    var nodeHover = result.nodes.label.map(function(lbl, i){
-      var cd = result.nodes.customdata[i];
-      var warn = (cd && cd[4] >= 0 && cd[4] < 5)
-        ? "<br>⚠ 样本不足(n=" + cd[4] + ")，颜色仅供参考" : "";
-      return "%{customdata[2]} = %{label}<br>" +
-        "NG 占比: %{customdata[0]:.1%} · 样本数: %{customdata[4]}（NG %{customdata[5]} 条）<br>" +
-        "完整取值: %{customdata[6]}" + warn + "<extra></extra>";
-    });
-
+    // 注意: Plotly sankey 的 node.hovertemplate 不支持数组(会导致 hover 完全消失),
+    // 必须用单一字符串模板; 小样本警示文本放在 customdata[7](空串自动不显示)
     var data = [{
       type: "sankey",
       arrangement: "snap",
@@ -1518,15 +1511,17 @@
         line: { color: "black", width: 0.5 },
         label: result.nodes.label,
         color: result.nodes.color,
-        customdata: result.nodes.customdata, // [NG占比, 层索引, 列名, 筛选用值, n, ng, 完整取值]
-        hovertemplate: nodeHover,
+        customdata: result.nodes.customdata, // [NG占比, 层索引, 列名, 筛选用值, n, ng, 完整取值, 小样本警示]
+        hovertemplate: "%{customdata[2]} = %{label}<br>" +
+          "NG 占比: %{customdata[0]:.1%} · 样本数: %{customdata[4]}（NG %{customdata[5]} 条）<br>" +
+          "完整取值: %{customdata[6]}%{customdata[7]}<extra></extra>",
       },
       link: {
         source: result.links.source,
         target: result.links.target,
         value: result.links.value,
         color: result.links.color,
-        hoverinfo: "none",
+        // 注意: 不能设置 hoverinfo:"none"——它会禁用链路 hover, 导致 hovertemplate 不生效
         hovertemplate: "%{source.label} → %{target.label}<br>样本数: %{value}<extra></extra>",
       },
     }];
@@ -2560,7 +2555,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.7.3</b> · 最近更新 2026-08-18</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.7.4</b> · 最近更新 2026-08-18</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2570,6 +2565,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.7.4',date:'2026-08-18',tag:'fix',tagTxt:'修复',
+   items:['修复 v3.7.3 引入的回归：节点 hover 完全失效——Plotly sankey 的 node.hovertemplate 不支持字符串数组（传入数组导致悬停信息消失），已恢复单一字符串模板，小样本警示文本改放 customdata 第 8 字段用 %{customdata[7]} 引用（空串自动不显示）','顺带修复 v2.x 遗留：链路 hover 被 hoverinfo:"none" 完全禁用（hovertemplate 不生效，悬停显示空白），已移除该配置，链路现在显示「源 → 目标 样本数」','浏览器实测验证：节点 hover 完整显示列名/NG占比/样本数/完整取值/小样本警示，链路 hover 正常显示'],
+   sub:'用户反馈「鼠标放到节点上不显示详细信息」：根因是 v3.7.3 把 hovertemplate 数组化触发 Plotly 已知限制，回归修复 + 顺带修复链路 hover 老问题，均已实测验证。'},
   {ver:'v3.7.3',date:'2026-08-18',tag:'feat',tagTxt:'科学性优化',
    items:['新增小样本保护：n&lt;5 的节点 NG 占比不可靠（2 条全 NG 也染深红，与 100 条全 NG 同色），改为染色置灰 + hover 提示「样本不足，颜色仅供参考」+ 出图区说明，避免把偶然当根因','层内节点按 NG 占比降序排列（红色热点聚在顶部，替代字符串排序），读图时热点位置更直观','点击节点加红色粗边框高亮：节点密集时不再只有链路变实心，视线焦点明确；取消高亮/切换配色时边框同步恢复','链路颜色加深（alpha 0.4/0.5 → 0.6），重叠处更易分辨','修复交互与注释不一致：再次点击同一节点现真正「恢复全量」（清筛选/CPK 范围/下钻面板），此前只清高亮','修复点击「其他」节点 CPK 误提示：其他是聚合容器无直接子集，不再设置筛选，避免面板显示「请点击节点」而用户明明点了'],
    sub:'桑基图科学性与点击反馈审查后的全量优化：1 项科学性保护 + 1 项布局优化 + 1 项视觉反馈 + 1 项可读性 + 2 项交互修复。'},

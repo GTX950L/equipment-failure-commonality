@@ -568,17 +568,21 @@
         label: allNodes,
         color: nodeColors,
         ngRatio: nodeKeys.map(function (k) { return nodeNgRatio[k]; }),
-        // 每个节点: [NG占比, 层索引, 列名, 筛选用原始值, 样本数n, NG数, 完整取值]
+        // 每个节点: [NG占比, 层索引, 列名, 筛选用原始值, 样本数n, NG数, 完整取值, 小样本警示文本]
         // 完整取值: 源层是完整 FlowCode; 其余层同 label
+        // 第 8 个元素是 hover 用警示文本(空串不显示), 不能塞进 hovertemplate 数组:
+        // Plotly sankey 的 node.hovertemplate 不支持数组, 数组会导致 hover 完全消失
         customdata: nodeKeys.map(function (k, i) {
+          const nCnt = nodeNCount[k];
           return [
             nodeNgRatio[k],
             nodeLayerIdx[i],
             nodeColName[i],
             nodeFilterValue[i],
-            nodeNCount[k],
+            nCnt,
             nodeNgCount[k],
             nodeFilterValue[i],
+            (nCnt >= 0 && nCnt < 5) ? "<br>⚠ 样本不足(n=" + nCnt + ")，颜色仅供参考" : "",
           ];
         }),
       },
