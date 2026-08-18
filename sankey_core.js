@@ -1157,4 +1157,8 @@
   if (typeof global !== "undefined" && !global.SankeyCore) {
     global.SankeyCore = api;
   }
+  // 双保险: 某些环境 window/global 分离, 显式挂到 window 保证浏览器内全局可访问
+  if (typeof window !== "undefined" && !window.SankeyCore) {
+    window.SankeyCore = api;
+  }
 })(typeof window !== "undefined" ? window : this);

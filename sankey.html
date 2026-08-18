@@ -353,6 +353,40 @@
 "use strict";
 (function(){
   var $ = function(id){ return document.getElementById(id); };
+  // ---------- 核心逻辑(sankey_core.js)加载保障 ----------
+  // 场景: GitHub Pages 网络抖动导致 sankey_core.js 同步加载失败时, 页面仍可打开,
+  // 但点「加载示例数据」等操作会报 "SankeyCore is not defined"。
+  // 方案: 启动即检测, 失败显示醒目提示; 使用时自动重试加载。
+  var _corePromise = null;
+  function ensureCore(){
+    if(typeof SankeyCore !== "undefined" && SankeyCore) return Promise.resolve(SankeyCore);
+    if(!_corePromise){
+      _corePromise = new Promise(function(resolve, reject){
+        var s = document.createElement("script");
+        s.src = "sankey_core.js";
+        s.onload = function(){
+          if(typeof SankeyCore !== "undefined" && SankeyCore) resolve(SankeyCore);
+          else reject(new Error("核心逻辑加载异常，请刷新页面"));
+        };
+        s.onerror = function(){ _corePromise = null; reject(new Error("核心逻辑(sankey_core.js)加载失败，请检查网络后刷新页面")); };
+        document.head.appendChild(s);
+      });
+    }
+    return _corePromise;
+  }
+  if(typeof SankeyCore === "undefined" || !SankeyCore){
+    // 首屏核心未就绪: 显示醒目警告条(不阻塞页面其他功能)
+    var warnBar = document.createElement("div");
+    warnBar.style.cssText = "position:sticky;top:0;z-index:99;background:#fff3cd;color:#664d03;" +
+      "padding:8px 14px;font-size:13px;text-align:center;border-bottom:1px solid #f0dc9b";
+    warnBar.innerHTML = "⚠ 核心逻辑加载失败（网络波动），部分功能暂不可用——页面已自动重试，稍后刷新即可。" +
+      "若持续出现，请检查网络后刷新。";
+    document.body.prepend(warnBar);
+    // 自动重试一次
+    ensureCore().then(function(){
+      if(warnBar.parentNode) warnBar.parentNode.removeChild(warnBar);
+    }).catch(function(e){ setInfo(e.message, "warn"); });
+  }
   var state = {
     header: [],
     rows: [],
@@ -521,6 +555,11 @@
 
   // ---------- 状态加载 ----------
   function loadData(header, rows, name){
+    // 核心逻辑加载保障: sankey_core.js 网络加载失败时给出明确提示而非 ReferenceError
+    if(typeof SankeyCore === "undefined" || !SankeyCore){
+      setInfo("核心逻辑(sankey_core.js)加载失败，已自动重试——请稍候几秒再试，或刷新页面", "warn");
+      return;
+    }
     state.header = header;
     state.rows = rows;
     state.filter = null;
@@ -1291,7 +1330,7 @@
       var ngVals = currentNgVals();
       var snap = {
         app: "equipment-failure-commonality",
-        version: "v3.8.1",
+        version: "v3.8.2",
         time: new Date().toISOString(),
         source: sourceCol(), result: resultCol(), ng: ngVals, params: params,
         processOrder: state.processOrder || [],
@@ -1484,6 +1523,10 @@
     rows = rows || state.rows;
     var isTime = rows !== state.rows;   // 时间演化重绘: 跳过弹窗与配置保存
     if(!state.header.length){ if(!isTime) setInfo("请先加载数据", "warn"); return; }
+    if(typeof SankeyCore === "undefined" || !SankeyCore){
+      if(!isTime) setInfo("核心逻辑(sankey_core.js)加载失败，已自动重试——请稍候几秒再试，或刷新页面", "warn");
+      return;
+    }
     syncColorbarLabel();
     var params = [];
     var boxes = $("paramList").querySelectorAll("input[type=checkbox]");
@@ -2517,8 +2560,11 @@
 
   $("btnSample").addEventListener("click", function(){
     // demo_data.js 为懒加载: 首次点击时才下载(233KB), 已加载则直接使用
+    // 同时等待核心逻辑就绪(自动重试加载 sankey_core.js)
     setInfo("正在加载示例数据…", "");
-    ensureDemoData().then(function(){
+    ensureCore().then(function(){
+      return ensureDemoData();
+    }).then(function(){
       var parsed = textToRows(DEMO_CSV);
       loadData(parsed.header, parsed.rows, "示例数据 demo");
       $("dataArea").value = DEMO_CSV.slice(0, 600) + "\n…（共 800 行，已省略）";
@@ -2685,7 +2731,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.1</b> · 最近更新 2026-08-18</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.2</b> · 最近更新 2026-08-18</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2695,6 +2741,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.8.2',date:'2026-08-18',tag:'fix',tagTxt:'修复',
+   items:['修复「SankeyCore is not defined」：GitHub Pages 网络抖动导致 sankey_core.js(同步加载)失败时页面仍可打开，点「加载示例数据」等操作才爆 ReferenceError——现增加三层保障：① 首屏检测核心未就绪时显示醒目警告条并自动重试加载；② 点示例时 ensureCore 等待重试完成再继续；③ loadData/plotSankey 入口加就绪检查，失败给出明确提示','UMD 双保险：sankey_core.js 显式挂载 window.SankeyCore，兼容 window/global 分离环境','浏览器实测：拦截 sankey_core.js 首次请求 → 警告条出现、点示例自动重试成功、数据正常载入（不再裸报错）'],
+   sub:'用户反馈线上点「加载示例数据」报 SankeyCore is not defined：本地/部署检查均正常，判定为网络抖动下核心 JS 加载失败的健壮性问题，三层加固并实测自动恢复。'},
   {ver:'v3.8.1',date:'2026-08-18',tag:'fix',tagTxt:'性能优化',
    items:['首屏提速：demo_data.js(233KB) 由同步加载改为懒加载——点「加载示例数据」才下载，首屏解析少 233KB（实测首屏资源仅 sankey_core.js + Plotly 预加载）','Excel 导入零等待：XLSX 解析引擎(952KB) 在 Plotly 加载完成后空闲预加载，首次导入 .xlsx 不再等 1 秒','Plotly 预加载提前：由 setTimeout 300ms 改为 requestIdleCallback 立即触发（脚本在 body 末尾，DOM 已就绪无需等待），出图等待进一步缩短','参数/不良值列表用 DocumentFragment 批量插入：30+ 列时避免逐个 appendChild 触发布局重排，加载数据后选列面板渲染提速','scoreColumns 排除词正则预编译：列多时不再每列重复构造 RegExp（配合采样，大表识别仍毫秒级）','修复：加载数据后提示被「已恢复上次配置」覆盖——恢复配置改为静默，始终显示「已载入 xxx：N 行 × M 列」'],
    sub:'围绕「打开网页 + 使用各功能」的等待时间做性能优化：首屏(懒加载 demo) + 引擎预加载(Plotly/XLSX) + DOM 渲染(fragment) + 计算(正则预编译) 四层。实测出图全流程正常，核心测试全过。'},
