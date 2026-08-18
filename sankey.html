@@ -122,11 +122,11 @@
   .colorbar{height:10px;border-radius:5px;background:linear-gradient(to right,#2f6db5 0%,#8a94a0 50%,#e4572e 100%)}
   .colorbar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px}
 
-  /* ---- 模态框: 更新记录 / 排查指南 (参照 cpk-jmp-studio 风格) ---- */
-  #clogOverlay,#guideOverlay,#reportOverlay{position:fixed;inset:0;background:rgba(16,32,64,.52);z-index:1000;
+  /* ---- 模态框: 更新记录 / 排查指南 / 术语百科 (参照 cpk-jmp-studio 风格) ---- */
+  #clogOverlay,#guideOverlay,#reportOverlay,#glossOverlay{position:fixed;inset:0;background:rgba(16,32,64,.52);z-index:1000;
                display:none;align-items:flex-start;justify-content:center;padding:28px 16px;
                overflow-y:auto;backdrop-filter:blur(4px)}
-  #clogOverlay.open,#guideOverlay.open,#reportOverlay.open{display:flex;animation:fadeIn .18s ease}
+  #clogOverlay.open,#guideOverlay.open,#reportOverlay.open,#glossOverlay.open{display:flex;animation:fadeIn .18s ease}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   .gloss-box{background:var(--card);border-radius:16px;max-width:860px;width:100%;
              box-shadow:0 12px 40px rgba(16,32,64,.3);overflow:hidden;animation:slideUp .22s ease}
@@ -1398,7 +1398,7 @@
       var ngVals = currentNgVals();
       var snap = {
         app: "equipment-failure-commonality",
-        version: "v3.8.5",
+        version: "v3.8.6",
         time: new Date().toISOString(),
         source: sourceCol(), result: resultCol(), ng: ngVals, params: params,
         processOrder: state.processOrder || [],
@@ -2826,7 +2826,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.5</b> · 最近更新 2026-08-18</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.6</b> · 最近更新 2026-08-18</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2945,6 +2945,9 @@ document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeGlos
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.8.6',date:'2026-08-18',tag:'fix',tagTxt:'修复',
+   items:['修复术语百科模态框位置错乱 + 关不掉：overlay 的 fixed 定位/display 规则选择器漏了 #glossOverlay（只有 clog/guide/report 三个），导致术语百科无 position:fixed（出现在文档流中不居中）且无 display:none 基础态（打开后无法关闭）；已补入选择器','浏览器实测：初始 display:none + position:fixed，打开后水平居中(left 210/宽1280)、关闭按钮/遮罩点击/Esc 三种方式均恢复正常'],
+   sub:'v3.8.5 术语百科回归：新增 overlay 时漏改共享 CSS 选择器（同类历史问题：hover 数组化、导出选择器都出现过）。教训：新增模态框必须同步加入 overlay 样式组。'},
   {ver:'v3.8.5',date:'2026-08-18',tag:'feat',tagTxt:'新功能',
    items:['新增「📖 术语百科」（参照 cpk-jmp-studio 风格）：收录 16 条分析术语，分 4 类（统计推断 / 算法概念 / 方法 / 界面概念），覆盖 hover 里出现的 Wilson 置信区间、Fisher 精确检验、p 值、显著偏高/偏低、小样本，以及信息增益、等宽分箱、「其他」合并、基线 NG 率、FACA、控制变量法、源列/结果列/工序参数层/Top-N','支持双向搜索：输入简称 / 中文 / 英文（如 Fisher、显著性、p、分箱）即时过滤；分类 chips 可快速筛选；卡片默认收起、点击展开，含释义 / 公式 / 实用提示','统计行显著性说明处加「📖 术语」跳转，直接定位到 Fisher 词条','入口：头部新增「📖 术语百科」按钮，Esc / 点遮罩关闭'],
    sub:'用户确认参照 cpk 项目术语百科格式实现，聚焦"分析结果里出现的词"而非工艺词，与排查指南/更新记录组成完整帮助体系。'},
