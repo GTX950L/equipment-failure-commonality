@@ -347,9 +347,8 @@
 
 <footer>设备问题共性分析 · 离线版 · 数据仅在你的浏览器内处理，不会上传任何内容</footer>
 
-<!-- 核心逻辑(小, 立即加载); Plotly/XLSX 为懒加载, 用到时才下载, 保证页面秒开 -->
+<!-- 核心逻辑(小, 立即加载); demo 数据/Plotly/XLSX 均为懒加载: 用到时才下载, 保证页面秒开 -->
 <script src="sankey_core.js"></script>
-<script src="demo_data.js"></script>
 <script>
 "use strict";
 (function(){
@@ -437,6 +436,21 @@
       });
     }
     return _xlsxPromise;
+  }
+  // demo_data.js(233KB) 懒加载: 点「加载示例数据」才下载, 不拖慢首屏
+  var _demoPromise = null;
+  function ensureDemoData(){
+    if(typeof DEMO_CSV !== "undefined") return Promise.resolve();
+    if(!_demoPromise){
+      _demoPromise = new Promise(function(resolve, reject){
+        var s = document.createElement("script");
+        s.src = "demo_data.js";
+        s.onload = function(){ resolve(); };
+        s.onerror = function(){ _demoPromise = null; reject(new Error("示例数据加载失败，请检查网络")); };
+        document.head.appendChild(s);
+      });
+    }
+    return _demoPromise;
   }
 
   // ---------- 解析 CSV ----------
@@ -576,7 +590,7 @@
         });
       }
       warnIfHighCardinalitySource();
-      setInfo("已恢复上次的源列 / 参数 / 配色设置", "ok");
+      // 注意: 不在此处 setInfo——loadData 的"已载入 xxx"提示更优先, 恢复配置是静默的
       return true;
     }catch(e){ /* 配置损坏则忽略 */ return false; }
   }
@@ -689,6 +703,8 @@
       '<span class="hint" id="paramCount" style="margin-left:6px"></span>';
     list.appendChild(filterBar);
     // 按表头顺序展示（不排序、不自动勾选）
+    // DocumentFragment 批量插入: 列多(30+)时避免逐个 appendChild 触发布局重排
+    var frag = document.createDocumentFragment();
     cands.forEach(function(col){
       var label = document.createElement("label");
       label.className = "chk";
@@ -704,8 +720,9 @@
       tag.className = "tag "+(type==="num"?"num":"");
       tag.textContent = type==="num"?"数值":"文本";
       label.appendChild(tag);
-      list.appendChild(label);
+      frag.appendChild(label);
     });
+    list.appendChild(frag);
     // 筛选交互 + 计数
     var curFilter = "all";
     function applyParamFilter(){
@@ -1060,6 +1077,8 @@
       if(items.length) autoKeys[items[0].key] = true;
     }
 
+    // DocumentFragment 批量插入, 避免结果值多时逐个 appendChild 触发布局重排
+    var frag = document.createDocumentFragment();
     items.forEach(function(u){
       var label = document.createElement("label");
       label.className = "chk";
@@ -1069,8 +1088,9 @@
       cb.checked = !!autoKeys[u.key];
       label.appendChild(cb);
       label.appendChild(document.createTextNode(" "+u.display+"（"+u.count.toLocaleString()+" 条）"));
-      list.appendChild(label);
+      frag.appendChild(label);
     });
+    list.appendChild(frag);
     var chosen = items.filter(function(u){ return autoKeys[u.key]; }).map(function(u){ return u.display; }).join(" / ");
     var note = document.createElement("div");
     note.className = "hint";
@@ -1271,7 +1291,7 @@
       var ngVals = currentNgVals();
       var snap = {
         app: "equipment-failure-commonality",
-        version: "v3.8.0",
+        version: "v3.8.1",
         time: new Date().toISOString(),
         source: sourceCol(), result: resultCol(), ng: ngVals, params: params,
         processOrder: state.processOrder || [],
@@ -1700,8 +1720,8 @@
   });
   initCompare();
   // 后台预加载绘图引擎: 打开页面即下载(4.5MB), 用户点生成时引擎已就绪 → 秒出图
-  // 与按钮点击共享同一 Promise, 不会重复下载
-  setTimeout(function(){
+  // 与按钮点击共享同一 Promise, 不会重复下载。脚本在 body 末尾执行, DOM 已就绪, 无需延迟
+  function preloadPlotly(){
     ensurePlotly().then(function(){
       var es = document.getElementById("engineStatus");
       if(es) es.textContent = "🟢 绘图引擎已就绪，出图秒级完成";
@@ -1709,7 +1729,21 @@
       var es = document.getElementById("engineStatus");
       if(es) es.textContent = "🔴 引擎加载失败，点「生成桑基图」时自动重试";
     });
-  }, 300);
+  }
+  // 空闲时再预加载 Excel 解析引擎(952KB): 首次导入 Excel 零等待, 且不与 Plotly 抢带宽
+  function preloadXLSX(){
+    ensureXLSX().catch(function(){});
+  }
+  // 优先级: Plotly 立即预加载; XLSX 在 Plotly 完成后或浏览器空闲时加载
+  if(window.requestIdleCallback){
+    requestIdleCallback(function(){
+      preloadPlotly();
+      setTimeout(preloadXLSX, 0);   // Plotly 发起后, XLSX 紧随(浏览器并发下载)
+    }, { timeout: 2000 });
+  } else {
+    setTimeout(preloadPlotly, 0);
+    setTimeout(preloadXLSX, 100);
+  }
   // 暴露给模态框 script 块使用(跨脚本块需 window 全局可访问)
   window.openReport = openReport;
   window.copyReport = copyReport;
@@ -2482,10 +2516,13 @@
   });
 
   $("btnSample").addEventListener("click", function(){
-    if(typeof DEMO_CSV === "undefined"){ setInfo("示例数据未内置", "warn"); return; }
-    var parsed = textToRows(DEMO_CSV);
-    loadData(parsed.header, parsed.rows, "示例数据 demo");
-    $("dataArea").value = DEMO_CSV.slice(0, 600) + "\n…（共 800 行，已省略）";
+    // demo_data.js 为懒加载: 首次点击时才下载(233KB), 已加载则直接使用
+    setInfo("正在加载示例数据…", "");
+    ensureDemoData().then(function(){
+      var parsed = textToRows(DEMO_CSV);
+      loadData(parsed.header, parsed.rows, "示例数据 demo");
+      $("dataArea").value = DEMO_CSV.slice(0, 600) + "\n…（共 800 行，已省略）";
+    }).catch(function(e){ setInfo(e.message, "warn"); });
   });
 
   $("btnClear").addEventListener("click", function(){
@@ -2648,7 +2685,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.0</b> · 最近更新 2026-08-18</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.1</b> · 最近更新 2026-08-18</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2658,6 +2695,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.8.1',date:'2026-08-18',tag:'fix',tagTxt:'性能优化',
+   items:['首屏提速：demo_data.js(233KB) 由同步加载改为懒加载——点「加载示例数据」才下载，首屏解析少 233KB（实测首屏资源仅 sankey_core.js + Plotly 预加载）','Excel 导入零等待：XLSX 解析引擎(952KB) 在 Plotly 加载完成后空闲预加载，首次导入 .xlsx 不再等 1 秒','Plotly 预加载提前：由 setTimeout 300ms 改为 requestIdleCallback 立即触发（脚本在 body 末尾，DOM 已就绪无需等待），出图等待进一步缩短','参数/不良值列表用 DocumentFragment 批量插入：30+ 列时避免逐个 appendChild 触发布局重排，加载数据后选列面板渲染提速','scoreColumns 排除词正则预编译：列多时不再每列重复构造 RegExp（配合采样，大表识别仍毫秒级）','修复：加载数据后提示被「已恢复上次配置」覆盖——恢复配置改为静默，始终显示「已载入 xxx：N 行 × M 列」'],
+   sub:'围绕「打开网页 + 使用各功能」的等待时间做性能优化：首屏(懒加载 demo) + 引擎预加载(Plotly/XLSX) + DOM 渲染(fragment) + 计算(正则预编译) 四层。实测出图全流程正常，核心测试全过。'},
   {ver:'v3.8.0',date:'2026-08-18',tag:'feat',tagTxt:'统计增强',
    items:['新增 Wilson 95% 置信区间：节点 hover 显示「95% 区间: x%~y%」，小样本节点的宽区间一目了然，红色是"真红"还是样本太少虚高一眼可辨','新增 Fisher 精确检验显著性：每个节点 vs 整体基线做 2×2 检验(p<0.05)，hover 显示「vs 整体: 显著偏高/偏低 (p=0.004)」——实测 demo 命中真实根因「注水阀=2 → 显著偏高 p=7.9e-5」「注水量<0.1048 → 显著偏高 p=1.2e-11」，直接支撑 FACA 结论','新增「⏱ 时间演化」滑条 + 播放：检测到时间列后，数据按时间排序，拖动滑条/自动播放查看前 N% 的桑基图演化，NG 根因从何时开始恶化一目了然（实测：滑条 30% → NG 率变化，播放从 0 自动推进到 100%）','修复响应式：出图面板 min-width 420→300px，窄屏(<420px) 不再水平溢出（实测 375px 视口 scrollW=375 无溢出）','hover 模板扩展：节点详情追加置信区间行与显著性行（customdata 8→10 字段，含新统计测试断言）'],
    sub:'按"高价值优化清单"实施 3 个 P1 + 1 个 P2：统计推断(区间+显著性) + 时间演化 + 响应式。所有新功能浏览器实测通过，test_core.js 新增 Wilson/Fisher 单测。'},

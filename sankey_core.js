@@ -738,6 +738,10 @@
       "异常", "错误", "retest", "rework", "复测", "返工", "操作员",
     ];
     const excludeEn = ["time", "date", "id", "no", "user", "name", "code"];
+    // 词边界正则预编译: 避免每列循环内 new RegExp(列多时多次构造)
+    const excludeEnRe = excludeEn.map(function (k) {
+      return new RegExp("(^|[^a-z0-9])" + k + "([^a-z0-9]|$)");
+    });
     // 故障分类列例外: 列名同时含「故障信号词」与「分类特征词」(如 异常原因 / 错误代码 / 不良类别)
     // 这类列是"问题到底出在哪"的直接证据, 不能被黑名单一刀切排除。
     const faultClassKw = ["原因", "代码", "类别", "分类", "说明", "描述", "备注", "类型"];
@@ -749,9 +753,7 @@
       const isFaultClass = faultClassKw.some(function (k) { return low.indexOf(k) >= 0; }) &&
                            faultSignalKw.some(function (k) { return low.indexOf(k) >= 0; });
       const hitExclude = excludeKw.some(function (k) { return low.indexOf(k) >= 0; }) ||
-        excludeEn.some(function (k) {
-          return new RegExp("(^|[^a-z0-9])" + k + "([^a-z0-9]|$)").test(low);
-        });
+        excludeEnRe.some(function (re) { return re.test(low); });
       if (!isFaultClass && hitExclude) { scores[col] = -1; return; }
 
       const vals = data.map(function (r) {
