@@ -161,6 +161,10 @@
     const p99 = valid[Math.min(valid.length - 1, Math.floor(valid.length * 0.99))];
     const lo = p1, hi = p99;
     const width = (hi - lo) / nBins;
+    // fmt 必须先于下方分支定义, 避免 const 暂时性死区(TDZ)报错
+    const fmt = function (x) {
+      return String(Math.round(x * 1e5) / 1e5);
+    };
     if (!(width > 0)) {
       // p1===p99: 正常值高度集中(如 999 个 0 + 1 个离群), 分箱无意义;
       // 直接返回原值, 仅把截尾边界外的离群值标为 <lo / >hi, 避免 [NaN ~ NaN] 标签
@@ -172,9 +176,6 @@
         return String(v);
       });
     }
-    const fmt = function (x) {
-      return String(Math.round(x * 1e5) / 1e5);
-    };
     const labels = values.map(function (v) {
       const n = toNumber(v);
       if (isNaN(n)) return "(空值)";
@@ -273,7 +274,7 @@
 
   function colorForLink(axis) {
     const c = mixColor(axis);
-    return "rgba(" + c[0] + "," + c[1] + "," + c[2] + ",0.4)";
+    return "rgba(" + c[0] + "," + c[1] + "," + c[2] + ",0.6)";
   }
 
   // ---------- JMP 风格二色模式: 以基线 NG 占比为界, 上红下蓝 ----------
@@ -282,7 +283,7 @@
   }
 
   function colorForLinkBinary(axis) {
-    return axis >= 0 ? "rgba(221,63,63,0.5)" : "rgba(58,110,205,0.5)";
+    return axis >= 0 ? "rgba(221,63,63,0.6)" : "rgba(58,110,205,0.6)";
   }
 
   // ---------------------------------------------------------------------
@@ -425,11 +426,6 @@
     });
 
     const layerLists = [srcShort].concat(paramLayers).concat([[LABEL_NG, LABEL_OK]]);
-    // 去重 + 排序，保持稳定
-    const layerNodes = layerLists.map(function (list) {
-      const uniq = Array.from(new Set(list)).sort();
-      return uniq;
-    });
 
     // 4. 每层每个值的统计 {ratio, n, ng}（ratio = NG 占比）
     function layerStat(list) {
@@ -461,6 +457,17 @@
       if (r.isNG) layerStats[layerStats.length - 1][key].ng++;
     });
 
+    // 去重; 层内按 NG 占比降序(红色热点聚在顶部), 作为初始布局提示, 比字符串排序更直观
+    const layerNodes = layerLists.map(function (list, li) {
+      const uniq = Array.from(new Set(list));
+      uniq.sort(function (a, b) {
+        const ra = layerStats[li][a] ? layerStats[li][a].ratio : 0;
+        const rb = layerStats[li][b] ? layerStats[li][b].ratio : 0;
+        return rb - ra;
+      });
+      return uniq;
+    });
+
     // 5. 染色轴 + 节点索引
     // 关键: 节点索引用「层索引 + 值」复合键, 避免跨层同 label(如"其他"/"1")被合并成同一节点,
     //      否则链路会指回自身/前层, 形成环状结构
@@ -475,10 +482,13 @@
       layer.forEach(function (n) {
         const key = li + "\u0000" + n;
         const st = layerStats[li][n];
+        const nCnt = st ? st.n : 0;
         nodeNgRatio[key] = st ? st.ratio : 0;
         nodeNgCount[key] = st ? st.ng : 0;
-        nodeNCount[key] = st ? st.n : 0;
-        nodeAxis[key] = ngRatioToColorAxis(nodeNgRatio[key], baselineNg);
+        nodeNCount[key] = nCnt;
+        // 小样本保护: n<5 的节点 NG 占比不可靠(如 2 条全 NG → 100% 深红), 会把偶然当根因;
+        // 染色置灰(axis=0), hover 时另提示"样本不足"
+        nodeAxis[key] = nCnt < 5 ? 0 : ngRatioToColorAxis(nodeNgRatio[key], baselineNg);
         if (!(key in nodeIndex)) {
           nodeIndex[key] = allNodes.length;
           allNodes.push(n);

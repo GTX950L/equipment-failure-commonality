@@ -1257,7 +1257,7 @@
       var ngVals = currentNgVals();
       var snap = {
         app: "equipment-failure-commonality",
-        version: "v3.7.2",
+        version: "v3.7.3",
         time: new Date().toISOString(),
         source: sourceCol(), result: resultCol(), ng: ngVals, params: params,
         processOrder: state.processOrder || [],
@@ -1499,6 +1499,16 @@
       };
     });
 
+    // per-node hover 模板: n<5 的小样本节点追加"样本不足"警示, 与灰色染色呼应
+    var nodeHover = result.nodes.label.map(function(lbl, i){
+      var cd = result.nodes.customdata[i];
+      var warn = (cd && cd[4] >= 0 && cd[4] < 5)
+        ? "<br>⚠ 样本不足(n=" + cd[4] + ")，颜色仅供参考" : "";
+      return "%{customdata[2]} = %{label}<br>" +
+        "NG 占比: %{customdata[0]:.1%} · 样本数: %{customdata[4]}（NG %{customdata[5]} 条）<br>" +
+        "完整取值: %{customdata[6]}" + warn + "<extra></extra>";
+    });
+
     var data = [{
       type: "sankey",
       arrangement: "snap",
@@ -1509,9 +1519,7 @@
         label: result.nodes.label,
         color: result.nodes.color,
         customdata: result.nodes.customdata, // [NG占比, 层索引, 列名, 筛选用值, n, ng, 完整取值]
-        hovertemplate: "%{customdata[2]} = %{label}<br>" +
-          "NG 占比: %{customdata[0]:.1%} · 样本数: %{customdata[4]}（NG %{customdata[5]} 条）<br>" +
-          "完整取值: %{customdata[6]}<extra></extra>",
+        hovertemplate: nodeHover,
       },
       link: {
         source: result.links.source,
@@ -1553,7 +1561,8 @@
       "📊 共 " + state.rows.length.toLocaleString() + " 条记录，" +
       "NG 占比 <b>" + (result.baselineNg*100).toFixed(1) + "%</b>，" +
       params.length + " 层工序参数，源列「" + esc(sourceCol()) + "」保留 Top-" + $("selTopN").value +
-      "。<br>💡 点击图上任意节点：该节点路径会<b>高亮</b>，并在下方 CPK 面板自动对该子集做能力分析（支持导出筛选数据）。";
+      "。<br>💡 点击图上任意节点：该节点路径会<b>高亮</b>，并在下方 CPK 面板自动对该子集做能力分析（支持导出筛选数据）。" +
+      "<br>⚠ 灰色节点 = NG 占比接近整体水平，或<b>样本不足（n&lt;5）</b>——后者颜色仅供参考，勿据此下根因结论。";
 
     // 源层"其他"节点预警: 合并节点 NG 占比高于基线 2 倍且样本数足够时, 提示展开查看
     warnOtherNode(result);
@@ -1652,9 +1661,13 @@
     syncColorbarLabel();
     var gd = document.querySelector(".js-plotly-plot");
     if(gd){
+      // 同时恢复节点边框(清掉高亮残留), 否则切换配色后红色边框仍在
+      var nNodes = result.nodes.label.length;
       Plotly.restyle(gd, {
         "node.color": [result.nodes.color],
         "link.color": [result.links.color],
+        "node.line.color": [new Array(nNodes).fill("black")],
+        "node.line.width": [new Array(nNodes).fill(0.5)],
       }, [0]);
     }
   }
@@ -1729,10 +1742,18 @@
       var info = cd[nodeIdx];
       if(!info || !Array.isArray(info) || info.length < 4) return;
 
-      // 再次点击同一节点 → 取消高亮并恢复全量
+      // 再次点击同一节点 → 取消高亮并恢复全量(清除筛选/CPK范围/下钻面板), 与注释一致
       if(state.hlNode === nodeIdx){
         state.hlNode = -1;
         clearHighlight();
+        state.filter = null;
+        state.cpkScope = "all";
+        renderCpkScope();
+        renderFilterBar();
+        scheduleCalcCpk();
+        var nd = document.getElementById("nodeDetailBox"); if(nd) nd.remove();
+        var od = document.getElementById("otherDetailBox"); if(od) od.remove();
+        return;
       } else {
         state.hlNode = nodeIdx;
         highlightPath(nodeIdx);
@@ -1741,13 +1762,13 @@
       var layerIdx = info[1], col = info[2], val = info[3];
       if(!col || state.header.indexOf(col) < 0) return;
 
-      // 点击源层「其他」节点 → 展开被合并的具体值清单(按 NG 优先), 可点单个值单独筛选
+      // 点击源层「其他」节点 → 只展开被合并的具体值清单(按 NG 优先), 可点单个值单独筛选;
+      // "其他"是聚合容器, 无直接子集, 不设置 CPK 筛选(否则无行匹配, CPK 面板会误显示"请点击节点")
       if(layerIdx === 0 && String(val).indexOf("其他") >= 0){
-        state.filter = { col: col, value: val, layerIdx: layerIdx };
-        state.cpkScope = "filter";
+        state.filter = null;
+        state.cpkScope = "all";
         renderCpkScope();
         renderFilterBar();
-        scheduleCalcCpk();
         showOtherDetail(nodeIdx);
         return;
       }
@@ -1931,20 +1952,35 @@
       }
     }
 
-    // 构建新颜色: 保留链路的原色并加深不透明度(0.4→0.95)让它变实心, 其余压到几乎不可见
+    // 构建新颜色: 保留链路的原色并加深不透明度(0.6→0.95)让它变实心, 其余压到几乎不可见
     var newColors = links.color.map(function(c, idx){
       if(!keep[idx]) return "rgba(225,228,232,0.03)";
-      // 把 rgba(r,g,b,a) 的 alpha 从 0.4 提到 0.95, 让原色更鲜明
+      // 把 rgba(r,g,b,a) 的 alpha 从 0.6 提到 0.95, 让原色更鲜明
       return c.replace(/,\s*[\d.]+\s*\)$/, ", 0.95)");
     });
+    // 点击节点自身加红色边框加粗, 提供明确的视觉焦点(节点密集时尤其重要)
+    var nNodes = state.cpkResult.nodes.label.length;
+    var lineColors = new Array(nNodes).fill("rgba(31,35,40,0.4)");
+    var lineWidths = new Array(nNodes).fill(0.5);
+    lineColors[nodeIdx] = "#cf222e";
+    lineWidths[nodeIdx] = 3;
     var gd = document.querySelector(".js-plotly-plot");
-    if(gd) Plotly.restyle(gd, { "link.color": [newColors] }, [0]);
+    if(gd) Plotly.restyle(gd, {
+      "link.color": [newColors],
+      "node.line.color": [lineColors],
+      "node.line.width": [lineWidths],
+    }, [0]);
   }
 
   function clearHighlight(){
     if(!state.cpkResult || typeof Plotly === "undefined") return;
+    var nNodes = state.cpkResult.nodes.label.length;
     var gd = document.querySelector(".js-plotly-plot");
-    if(gd) Plotly.restyle(gd, { "link.color": [state.cpkResult.links.color.slice()] }, [0]);
+    if(gd) Plotly.restyle(gd, {
+      "link.color": [state.cpkResult.links.color.slice()],
+      "node.line.color": [new Array(nNodes).fill("black")],
+      "node.line.width": [new Array(nNodes).fill(0.5)],
+    }, [0]);
   }
 
   function initCpkPanel(){
@@ -2524,7 +2560,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.7.2</b> · 最近更新 2026-08-18</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.7.3</b> · 最近更新 2026-08-18</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2534,6 +2570,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.7.3',date:'2026-08-18',tag:'feat',tagTxt:'科学性优化',
+   items:['新增小样本保护：n&lt;5 的节点 NG 占比不可靠（2 条全 NG 也染深红，与 100 条全 NG 同色），改为染色置灰 + hover 提示「样本不足，颜色仅供参考」+ 出图区说明，避免把偶然当根因','层内节点按 NG 占比降序排列（红色热点聚在顶部，替代字符串排序），读图时热点位置更直观','点击节点加红色粗边框高亮：节点密集时不再只有链路变实心，视线焦点明确；取消高亮/切换配色时边框同步恢复','链路颜色加深（alpha 0.4/0.5 → 0.6），重叠处更易分辨','修复交互与注释不一致：再次点击同一节点现真正「恢复全量」（清筛选/CPK 范围/下钻面板），此前只清高亮','修复点击「其他」节点 CPK 误提示：其他是聚合容器无直接子集，不再设置筛选，避免面板显示「请点击节点」而用户明明点了'],
+   sub:'桑基图科学性与点击反馈审查后的全量优化：1 项科学性保护 + 1 项布局优化 + 1 项视觉反馈 + 1 项可读性 + 2 项交互修复。'},
   {ver:'v3.7.2',date:'2026-08-18',tag:'fix',tagTxt:'修复',
    items:['修复 P0：CPK 面板自动计算完全失效——scheduleCalcCpk 防抖回调误调用自身（死循环每 250ms 空转），点击节点/切换范围后下方 CPK 面板永不更新，改为正确调用 calcCpk()','修复 P1：结果列无关键词时「不良值」自动识别勾错——少数派逻辑 items.slice().sort() 结果被丢弃，实际勾到的是原始顺序第一项（通常恰是正常值如 PASS/1），导致 NG/OK 定义反转全图红蓝颠倒；改为原地排序取真正少数派','修复：桑基图标题取错——原用缩短 label 查完整条码聚合表（必 miss）导致标题固定显示数据最后一行（demo 实测「其他 & 6 more」），改为直接取 NG 数最多的源值并缩短展示','修复：时间列误判为数值列——toNumber 对 "8:30" 去冒号得 830，HH:MM 格式时间列被当数值分箱成 [830~930] 无意义区间；增加冒号/日期格式拦截','修复：数值列 ≥99% 同值时（如 999 个 0+1 个离群）分箱宽度为 0，产生 "[NaN ~ NaN]" 标签；改为该场景直接返回原值、离群值仍标 <lo/>hi','修复：全 NG 数据节点全灰（baseline=1 时 axis 恒 0），应红色警示却显示中性灰；基线异常时统一以 0.5 为参考，全 NG 全红/全 OK 全蓝','修复：源层缩短 label 碰撞——两个不同完整条码缩短后相同会被合并成同一节点且点击无法筛到第二个值；冲突时退化为完整值作 label 保证唯一','修复：列名黑名单子串误伤——"id" 误杀 candidate/grid、"no" 误杀 number 等；英文短词改词边界匹配（scoreColumns 与 CPK 参数列两处）','修复：粘贴带 UTF-8 BOM 的文本时首列名带 \uFEFF；导出 CSV 立即 revokeObjectURL 个别浏览器保存失败；数据质量报告缺失标记大小写不敏感（NAN/Null/None）；NG 漂移检测 key 加列数指纹避免跨数据集误报','清理：「只勾 NG 值」按钮死代码；loadData 中 autoRecommend 重复调用；分析快照版本号 v3.5.0→v3.7.2 与实际一致'],
    sub:'按审查报告 P0~P3 全量修复并推送：1 个 P0（CPK 面板失效）+ 1 个 P1（不良值勾错）+ 6 个 P2 + 7 个 P3，共 16 处；核心算法层 test_core.js 全部断言通过，新增边界定向验证 9/9 通过。'},
