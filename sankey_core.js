@@ -287,6 +287,85 @@
   }
 
   // ---------------------------------------------------------------------
+  // 统计推断: Wilson 置信区间 + Fisher 精确检验
+  // ---------------------------------------------------------------------
+  function wilsonInterval(n, ng, z) {
+    /**
+     * 二项比例的 Wilson 95% 置信区间（小样本比正态近似更准）。
+     * 返回 { lo, hi }（0~1）；n<1 返回 {lo:0, hi:0}。
+     */
+    z = z || 1.96;
+    if (n < 1 || ng < 0 || ng > n) return { lo: 0, hi: 0 };
+    const p = ng / n;
+    const denom = 1 + z * z / n;
+    const center = p + z * z / (2 * n);
+    const margin = z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n));
+    return {
+      lo: Math.max(0, (center - margin) / denom),
+      hi: Math.min(1, (center + margin) / denom),
+    };
+  }
+
+  function logFact(n) {
+    /** ln(n!)，Stirling 近似（n<=1 返回 0） */
+    if (n < 0) return NaN;
+    if (n <= 1) return 0;
+    return n * Math.log(n) - n + 0.5 * Math.log(2 * Math.PI * n) + 1 / (12 * n) - 1 / (360 * n * n * n);
+  }
+
+  function hypergeomGEQ(k, N, K, n) {
+    /** P(X >= k)，X ~ 超几何(N 总体, K 成功数, n 抽签数) */
+    let p = 0;
+    const hi = Math.min(K, n);
+    for (let x = Math.max(0, k); x <= hi; x++) {
+      const l = logFact(K) - logFact(x) - logFact(K - x)
+        + logFact(N - K) - logFact(n - x) - logFact(N - K - n + x)
+        - logFact(N) + logFact(n) + logFact(N - n);
+      p += Math.exp(l);
+    }
+    return Math.max(0, Math.min(1, p));
+  }
+
+  function fisherTwoTailed(a, b, c, d) {
+    /**
+     * 2×2 表 Fisher 精确检验（双侧）:
+     *        NG  非NG
+     * 节点   a    b
+     * 其余   c    d
+     * 返回 p 值(0~1)。用于判断节点 NG 率与整体基线是否有显著差异。
+     */
+    const N = a + b + c + d;
+    if (N === 0) return 1;
+    const K = a + c, n = a + b, k = a;
+    const pRight = hypergeomGEQ(k, N, K, n);          // P(X >= k)
+    const pLeft = Math.max(0, 1 - hypergeomGEQ(k + 1, N, K, n)); // P(X <= k)
+    return Math.max(0, Math.min(1, 2 * Math.min(pRight, pLeft)));
+  }
+
+  function ciText(n, ng) {
+    /** hover 用置信区间文本 */
+    if (n < 1) return "";
+    const c = wilsonInterval(n, ng);
+    return "95% 区间: " + (c.lo * 100).toFixed(1) + "%~" + (c.hi * 100).toFixed(1) + "%";
+  }
+
+  function sigText(ngRatio, baseline, n, ng, totalN, totalNg) {
+    /**
+     * 节点 vs 整体基线的显著性文本。
+     * 返回 "显著偏高 (p=0.004)" / "显著偏低 (p=0.021)" / ""(不显著)。
+     * 用 Fisher 精确检验(2×2: 节点 vs 其余), p<0.05 视为显著。
+     */
+    if (n < 1 || totalN < 2) return "";
+    const a = ng, b = n - ng;
+    const c = totalNg - ng, d = totalN - n - (totalNg - ng);
+    if (c < 0 || d < 0) return "";
+    const p = fisherTwoTailed(a, b, c, d);
+    if (!(p < 0.05)) return "";
+    const dir = ngRatio >= baseline ? "偏高" : "偏低";
+    return "显著" + dir + " (p=" + (p < 0.001 ? p.toExponential(1) : p.toFixed(3)) + ")";
+  }
+
+  // ---------------------------------------------------------------------
   // CPK 过程能力计算
   // ---------------------------------------------------------------------
   function meanStd(values) {
@@ -568,21 +647,29 @@
         label: allNodes,
         color: nodeColors,
         ngRatio: nodeKeys.map(function (k) { return nodeNgRatio[k]; }),
-        // 每个节点: [NG占比, 层索引, 列名, 筛选用原始值, 样本数n, NG数, 完整取值, 小样本警示文本]
+        // 每个节点: [NG占比, 层索引, 列名, 筛选用原始值, 样本数n, NG数, 完整取值,
+        //           小样本警示, 置信区间文本, 显著性文本]
         // 完整取值: 源层是完整 FlowCode; 其余层同 label
-        // 第 8 个元素是 hover 用警示文本(空串不显示), 不能塞进 hovertemplate 数组:
+        // 警示/区间/显著性都是 hover 用的预生成文本(空串不显示), 不能塞进 hovertemplate 数组:
         // Plotly sankey 的 node.hovertemplate 不支持数组, 数组会导致 hover 完全消失
         customdata: nodeKeys.map(function (k, i) {
           const nCnt = nodeNCount[k];
+          const ngCnt = nodeNgCount[k];
+          const ratio = nodeNgRatio[k];
+          const totalN = rows.length;
+          const totalNg = Math.round(baselineNg * totalN);
+          const sig = sigText(ratio, baselineNg, nCnt, ngCnt, totalN, totalNg);
           return [
-            nodeNgRatio[k],
+            ratio,
             nodeLayerIdx[i],
             nodeColName[i],
             nodeFilterValue[i],
             nCnt,
-            nodeNgCount[k],
+            ngCnt,
             nodeFilterValue[i],
             (nCnt >= 0 && nCnt < 5) ? "<br>⚠ 样本不足(n=" + nCnt + ")，颜色仅供参考" : "",
+            "<br>" + ciText(nCnt, ngCnt),
+            sig ? "<br>vs 整体: " + sig : "",
           ];
         }),
       },
@@ -1056,6 +1143,10 @@
     meanStd: meanStd,
     calcCpK: calcCpK,
     verdictForCpk: verdictForCpk,
+    wilsonInterval: wilsonInterval,
+    fisherTwoTailed: fisherTwoTailed,
+    ciText: ciText,
+    sigText: sigText,
   };
 
   if (typeof module !== "undefined" && module.exports) {

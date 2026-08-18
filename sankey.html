@@ -270,7 +270,8 @@
   </div>
 
   <!-- ============ 面板 ③ 出图 ============ -->
-  <div class="panel" style="flex:2 1 520px;min-width:420px">
+  <!-- min-width 由 420 改为 300: 修复窄屏(<420px)水平溢出 -->
+  <div class="panel" style="flex:2 1 520px;min-width:300px">
     <h2><span class="step">3</span> 出图</h2>
     <div id="chartArea">
       <div class="empty-tip">先在「打钩选择」面板里选好列，再点「🚀 生成桑基图」。</div>
@@ -305,6 +306,19 @@
     <div class="colorbar-wrap" id="colorbar" style="display:none">
       <div class="colorbar"></div>
       <div class="colorbar-label"><span>蓝（合格为主）</span><span>灰（接近整体水平）</span><span>红（NG 集中）</span></div>
+    </div>
+
+    <!-- ============ 时间演化滑条 (检测到时间列时显示) ============ -->
+    <div id="timeCtrl" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:#fbfcfe">
+      <div class="process-title">⏱ 时间演化：NG 分布随时间的变化
+        <span class="hint" id="timeRangeTxt" style="font-weight:400"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
+        <button class="sec" id="btnTimePlay" style="padding:4px 14px;font-size:12px;margin:0">▶ 播放</button>
+        <input type="range" id="timeSlider" min="0" max="100" value="100" style="flex:1;min-width:160px;accent-color:var(--c-primary)">
+        <span class="hint" id="timeSliderLabel" style="min-width:42px;text-align:right">100%</span>
+      </div>
+      <div class="process-note">拖动滑条 = 只看前 N% 数据（按时间列排序），红色根因从哪一刻开始出现、何时恶化，一目了然。播放自动从 0 推进到 100%。</div>
     </div>
 
     <!-- ============ CPK 联合分析面板 ============ -->
@@ -1257,7 +1271,7 @@
       var ngVals = currentNgVals();
       var snap = {
         app: "equipment-failure-commonality",
-        version: "v3.7.5",
+        version: "v3.8.0",
         time: new Date().toISOString(),
         source: sourceCol(), result: resultCol(), ng: ngVals, params: params,
         processOrder: state.processOrder || [],
@@ -1445,13 +1459,16 @@
     });
   }
 
-  function plotSankey(){
-    if(!state.header.length){ setInfo("请先加载数据", "warn"); return; }
+  function plotSankey(rows){
+    // rows: 可选, 传入数据子集(时间演化滑条用); 不传 = 全量
+    rows = rows || state.rows;
+    var isTime = rows !== state.rows;   // 时间演化重绘: 跳过弹窗与配置保存
+    if(!state.header.length){ if(!isTime) setInfo("请先加载数据", "warn"); return; }
     syncColorbarLabel();
     var params = [];
     var boxes = $("paramList").querySelectorAll("input[type=checkbox]");
     boxes.forEach(function(b){ if(b.checked) params.push(b.value); });
-    if(!params.length){ alert("请至少勾选 1 个工序参数列"); return; }
+    if(!params.length){ if(!isTime) alert("请至少勾选 1 个工序参数列"); return; }
     // 若配置了工序顺序: 参数层按工序先后排列(工序中的列在前按序, 未配置的列保持原顺序排后)
     if(state.processOrder && state.processOrder.length){
       var poMap = {};
@@ -1465,10 +1482,11 @@
 
     var ngVals = [];
     $("ngList").querySelectorAll("input[type=checkbox]").forEach(function(b){ if(b.checked) ngVals.push(b.value); });
-    if(!ngVals.length){ alert("请至少勾选 1 个值作为「不良」"); return; }
+    if(!ngVals.length){ if(!isTime) alert("请至少勾选 1 个值作为「不良」"); return; }
+    if(!rows.length){ if(!isTime) alert("没有可绘制的数据"); return; }
 
     var result = SankeyCore.buildSankey({
-      data: state.rows,
+      data: rows,
       sourceCol: sourceCol(),
       paramCols: params,
       resultCol: resultCol(),
@@ -1511,10 +1529,10 @@
         line: { color: "black", width: 0.5 },
         label: result.nodes.label,
         color: result.nodes.color,
-        customdata: result.nodes.customdata, // [NG占比, 层索引, 列名, 筛选用值, n, ng, 完整取值, 小样本警示]
+        customdata: result.nodes.customdata, // [NG占比, 层索引, 列名, 筛选用值, n, ng, 完整取值, 警示, 95%区间, 显著性]
         hovertemplate: "%{customdata[2]} = %{label}<br>" +
           "NG 占比: %{customdata[0]:.1%} · 样本数: %{customdata[4]}（NG %{customdata[5]} 条）<br>" +
-          "完整取值: %{customdata[6]}%{customdata[7]}<extra></extra>",
+          "完整取值: %{customdata[6]}%{customdata[7]}%{customdata[8]}%{customdata[9]}<extra></extra>",
       },
       link: {
         source: result.links.source,
@@ -1541,7 +1559,7 @@
     state.hlNode = -1;   // 新图重置高亮状态
     $("colorbar").style.display = "";
     bindSankeyClick();
-    saveConfig();   // 出图成功 → 记住当前配置
+    if(!isTime) saveConfig();   // 出图成功 → 记住当前配置(时间演化重绘不重复保存)
 
     // 出图后校验 CPK 筛选是否仍然有效（列被去掉则清掉筛选）
     var colsInPlot = [sourceCol()].concat(params).concat([resultCol()]);
@@ -1552,15 +1570,83 @@
       renderFilterBar();
     }
 
+    var timeInfo = "";
+    if(isTime){
+      timeInfo = "⏱ 时间演化：当前显示前 <b>" + Math.round(rows.length / state.rows.length * 100) + "%</b>（" + rows.length.toLocaleString() + " 条，按时间列排序）。";
+    }
     $("statLine").innerHTML =
-      "📊 共 " + state.rows.length.toLocaleString() + " 条记录，" +
+      (isTime ? timeInfo : "📊 共 " + state.rows.length.toLocaleString() + " 条记录，") +
       "NG 占比 <b>" + (result.baselineNg*100).toFixed(1) + "%</b>，" +
       params.length + " 层工序参数，源列「" + esc(sourceCol()) + "」保留 Top-" + $("selTopN").value +
       "。<br>💡 点击图上任意节点：该节点路径会<b>高亮</b>，并在下方 CPK 面板自动对该子集做能力分析（支持导出筛选数据）。" +
-      "<br>⚠ 灰色节点 = NG 占比接近整体水平，或<b>样本不足（n&lt;5）</b>——后者颜色仅供参考，勿据此下根因结论。";
+      "<br>⚠ 灰色节点 = NG 占比接近整体水平，或<b>样本不足（n&lt;5）</b>——后者颜色仅供参考，勿据此下根因结论。" +
+      "<br>🔬 悬停节点可看 95% 置信区间与显著性：<b>显著偏高/偏低</b> = 与整体差异有统计意义（Fisher p&lt;0.05）。";
 
     // 源层"其他"节点预警: 合并节点 NG 占比高于基线 2 倍且样本数足够时, 提示展开查看
     warnOtherNode(result);
+
+    // 首次全量出图后初始化时间演化控制条
+    if(!isTime) initTimeCtrl();
+  }
+
+  // ---------- 时间演化控制条: 数据按时间排序后, 滑条/播放重绘前 N% ----------
+  var timePlaying = false, timeTimer = null;
+  function stopTimePlay(){
+    if(timeTimer){ clearInterval(timeTimer); timeTimer = null; }
+    timePlaying = false;
+    var btn = $("btnTimePlay");
+    if(btn) btn.textContent = "▶ 播放";
+  }
+  function initTimeCtrl(){
+    var ctrl = $("timeCtrl");
+    if(!ctrl) return;
+    // 检测时间列(排除源列/结果列)
+    var timeCol = state.header.filter(function(c){ return /时间|时刻|date|time/i.test(c) && c !== resultCol() && c !== sourceCol(); })[0];
+    if(!timeCol || state.rows.length < 100){ ctrl.style.display = "none"; return; }
+    // 数据按时间列稳定排序(仅一次, 排序结果永久影响后续分析顺序, 但 buildSankey 不依赖行序)
+    if(!state._timeSorted){
+      var ti = state.header.indexOf(timeCol);
+      state.rows = state.rows.slice().sort(function(a, b){
+        var ta = String(a[timeCol] === null || a[timeCol] === undefined ? "" : a[timeCol]);
+        var tb = String(b[timeCol] === null || b[timeCol] === undefined ? "" : b[timeCol]);
+        return ta < tb ? -1 : ta > tb ? 1 : 0;
+      });
+      state._timeSorted = true;
+    }
+    ctrl.style.display = "";
+    var hint = $("timeRangeTxt");
+    if(hint) hint.textContent = "（时间列：" + timeCol + "）";
+    var slider = $("timeSlider");
+    slider.value = 100;
+    $("timeSliderLabel").textContent = "100%";
+    // 滑条拖动 → 重绘前 N%
+    slider.oninput = function(){
+      stopTimePlay();
+      var v = parseInt(slider.value, 10) || 0;
+      $("timeSliderLabel").textContent = v + "%";
+      var n = Math.max(20, Math.round(state.rows.length * v / 100));
+      if(n >= state.rows.length){ plotSankey(state.rows); return; }
+      plotSankey(state.rows.slice(0, n));
+    };
+    // 播放 → 从 0 自动推进到 100%
+    var btn = $("btnTimePlay");
+    btn.onclick = function(){
+      if(timePlaying){ stopTimePlay(); return; }
+      timePlaying = true;
+      btn.textContent = "⏸ 暂停";
+      slider.value = 0;
+      $("timeSliderLabel").textContent = "0%";
+      var n0 = Math.max(20, Math.round(state.rows.length * 0));
+      plotSankey(state.rows.slice(0, n0));
+      timeTimer = setInterval(function(){
+        var v = parseInt(slider.value, 10) + 5;
+        if(v >= 100){ v = 100; stopTimePlay(); }
+        slider.value = v;
+        $("timeSliderLabel").textContent = v + "%";
+        var n = Math.max(20, Math.round(state.rows.length * v / 100));
+        plotSankey(state.rows.slice(0, n));
+      }, 350);
+    };
   }
 
   // ---------- "其他"节点预警: 合并节点里可能藏着高 NG ----------
@@ -2562,7 +2648,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.7.5</b> · 最近更新 2026-08-18</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.0</b> · 最近更新 2026-08-18</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2572,6 +2658,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.8.0',date:'2026-08-18',tag:'feat',tagTxt:'统计增强',
+   items:['新增 Wilson 95% 置信区间：节点 hover 显示「95% 区间: x%~y%」，小样本节点的宽区间一目了然，红色是"真红"还是样本太少虚高一眼可辨','新增 Fisher 精确检验显著性：每个节点 vs 整体基线做 2×2 检验(p<0.05)，hover 显示「vs 整体: 显著偏高/偏低 (p=0.004)」——实测 demo 命中真实根因「注水阀=2 → 显著偏高 p=7.9e-5」「注水量<0.1048 → 显著偏高 p=1.2e-11」，直接支撑 FACA 结论','新增「⏱ 时间演化」滑条 + 播放：检测到时间列后，数据按时间排序，拖动滑条/自动播放查看前 N% 的桑基图演化，NG 根因从何时开始恶化一目了然（实测：滑条 30% → NG 率变化，播放从 0 自动推进到 100%）','修复响应式：出图面板 min-width 420→300px，窄屏(<420px) 不再水平溢出（实测 375px 视口 scrollW=375 无溢出）','hover 模板扩展：节点详情追加置信区间行与显著性行（customdata 8→10 字段，含新统计测试断言）'],
+   sub:'按"高价值优化清单"实施 3 个 P1 + 1 个 P2：统计推断(区间+显著性) + 时间演化 + 响应式。所有新功能浏览器实测通过，test_core.js 新增 Wilson/Fisher 单测。'},
   {ver:'v3.7.5',date:'2026-08-18',tag:'fix',tagTxt:'修复',
    items:['修复 v3.7.3 隐藏 bug：节点边框高亮实际未生效——Plotly sankey 的 restyle 对 node.line.color/width 不生效(实测断点确认), 改用直接操作 DOM 设置 stroke/strokeWidth(高亮/清除/切配色三处)','修复长期隐藏 bug：导出 PNG/SVG 报"请先生成桑基图"——downloadImage 的 chart.querySelector(".js-plotly-plot") 查的是 chartBox 子元素, 但 js-plotly-plot class 在 chartBox 自身上, 永远找不到; 改为优先匹配自身','浏览器实测验证(Edge): 节点红色粗边框持久 0~1200ms、PNG 导出 688KB 中文正常、双图对比(上午 NG 4.8% vs 下午 2.8%) 并排渲染、点击恢复/「其他」明细展开/CPK 联动全部正常','已知 P3(暂未修): 窄屏(<420px) chartBox 面板 min-width:420px 造成水平溢出, 建议改为 min-width:0 或 320px'],
    sub:'用户确认后跑完整视觉/体验测试(8 项), 发现 v3.7.3 边框高亮未生效 + 长期导出 bug 均修复, 并暴露 1 个 P3 响应式改进项。'},

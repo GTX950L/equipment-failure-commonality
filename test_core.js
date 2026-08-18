@@ -95,7 +95,7 @@ assert.strictEqual(firstLayer, 800, "第一层链路应为 800");
 assert.ok(result.nodes.label.includes("FAIL"), "应包含 FAIL 节点");
 assert.ok(result.nodes.label.includes("PASS"), "应包含 PASS 节点");
 assert.strictEqual(result.nodes.customdata.length, result.nodes.label.length, "customdata 应与节点数一致");
-assert.strictEqual(result.nodes.customdata[0].length, 8, "customdata 应为 [占比, 层索引, 列名, 筛选用值, 样本数n, NG数, 完整取值, 小样本警示]");
+assert.strictEqual(result.nodes.customdata[0].length, 10, "customdata 应为 [占比, 层索引, 列名, 筛选用值, 样本数n, NG数, 完整取值, 警示, 区间, 显著性]");
 // 二色模式
 const resultBinary = core.buildSankey({
   data: data, sourceCol: SOURCE,
@@ -249,4 +249,21 @@ assert.strictEqual(core.verdictForCpk(1.2).level, "C");
 assert.strictEqual(core.verdictForCpk(1.5).level, "B");
 assert.strictEqual(core.verdictForCpk(2.0).level, "A");
 
-console.log("\n✅ 全部断言通过 (含 calcCpK / verdictForCpk / comboNgAnalysis / 故障分类列放行)");
+// ============ Wilson 置信区间 + Fisher 精确检验 ============
+// Wilson: p=0.5 n=100 → 约 [0.402, 0.598]; p=1 n=5 → lo≈0.566; p=0 n=10 → hi≈0.278
+const w50 = core.wilsonInterval(100, 50);
+assert.ok(Math.abs(w50.lo - 0.404) < 0.01 && Math.abs(w50.hi - 0.596) < 0.01, "Wilson n=100 p=0.5 区间: " + w50.lo.toFixed(3) + "~" + w50.hi.toFixed(3));
+const wAll = core.wilsonInterval(5, 5);
+assert.ok(Math.abs(wAll.lo - 0.566) < 0.01 && Math.abs(wAll.hi - 1) < 1e-9, "Wilson n=5 p=1 区间: " + wAll.lo.toFixed(3));
+const wNone = core.wilsonInterval(10, 0);
+assert.ok(Math.abs(wNone.hi - 0.278) < 0.01 && wNone.lo === 0, "Wilson n=10 p=0 区间: " + wNone.hi.toFixed(3));
+// Fisher: 节点 vs 其余
+assert.ok(core.fisherTwoTailed(15, 5, 35, 45) < 0.05, "Fisher 显著偏高应 p<0.05: " + core.fisherTwoTailed(15, 5, 35, 45).toFixed(4));
+assert.ok(core.fisherTwoTailed(10, 10, 40, 40) > 0.5, "Fisher 同比例应不显著: " + core.fisherTwoTailed(10, 10, 40, 40).toFixed(4));
+assert.ok(core.fisherTwoTailed(5, 0, 35, 960) < 0.001, "Fisher 极端应 p 极小");
+// sigText / ciText
+assert.ok(core.sigText(0.75, 0.5, 20, 15, 100, 50).indexOf("显著偏高") >= 0, "sigText 显著偏高");
+assert.strictEqual(core.sigText(0.5, 0.5, 20, 10, 100, 50), "", "sigText 同比例应为空");
+assert.ok(core.ciText(20, 15).indexOf("95% 区间") === 0, "ciText 格式");
+
+console.log("\n✅ 全部断言通过 (含 calcCpK / verdictForCpk / Wilson / Fisher / comboNgAnalysis / 故障分类列放行)");
