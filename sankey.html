@@ -1257,7 +1257,7 @@
       var ngVals = currentNgVals();
       var snap = {
         app: "equipment-failure-commonality",
-        version: "v3.7.4",
+        version: "v3.7.5",
         time: new Date().toISOString(),
         source: sourceCol(), result: resultCol(), ng: ngVals, params: params,
         processOrder: state.processOrder || [],
@@ -1657,13 +1657,11 @@
     var gd = document.querySelector(".js-plotly-plot");
     if(gd){
       // 同时恢复节点边框(清掉高亮残留), 否则切换配色后红色边框仍在
-      var nNodes = result.nodes.label.length;
       Plotly.restyle(gd, {
         "node.color": [result.nodes.color],
         "link.color": [result.links.color],
-        "node.line.color": [new Array(nNodes).fill("black")],
-        "node.line.width": [new Array(nNodes).fill(0.5)],
       }, [0]);
+      resetNodeBorders();
     }
   }
 
@@ -1701,7 +1699,9 @@
   function downloadImage(format, filename, w, h){
     var chart = document.getElementById("chartBox");
     if(!chart || typeof Plotly === "undefined"){ alert("请先生成桑基图"); return; }
-    var gd = chart.querySelector(".js-plotly-plot");
+    // 注意: js-plotly-plot class 在 chartBox 自身(Plotly 添加), 不在其子元素上,
+    // 用 chart.querySelector 找不到 → 导出一直报"请先生成桑基图"。需同时检查自身。
+    var gd = chart.classList.contains("js-plotly-plot") ? chart : chart.querySelector(".js-plotly-plot");
     if(!gd){ alert("请先生成桑基图"); return; }
     Plotly.toImage(gd, { format: format, width: w || 1400, height: h || 800, scale: format === "png" ? 2 : 1 })
       .then(function(url){
@@ -1953,29 +1953,36 @@
       // 把 rgba(r,g,b,a) 的 alpha 从 0.6 提到 0.95, 让原色更鲜明
       return c.replace(/,\s*[\d.]+\s*\)$/, ", 0.95)");
     });
-    // 点击节点自身加红色边框加粗, 提供明确的视觉焦点(节点密集时尤其重要)
-    var nNodes = state.cpkResult.nodes.label.length;
-    var lineColors = new Array(nNodes).fill("rgba(31,35,40,0.4)");
-    var lineWidths = new Array(nNodes).fill(0.5);
-    lineColors[nodeIdx] = "#cf222e";
-    lineWidths[nodeIdx] = 3;
     var gd = document.querySelector(".js-plotly-plot");
-    if(gd) Plotly.restyle(gd, {
-      "link.color": [newColors],
-      "node.line.color": [lineColors],
-      "node.line.width": [lineWidths],
-    }, [0]);
+    if(gd){
+      // 链路颜色用 restyle 更新(有效); 节点边框不能用 restyle——
+      // Plotly sankey 的 restyle 不更新 node.line(实测无效), 改为直接操作 DOM
+      Plotly.restyle(gd, { "link.color": [newColors] }, [0]);
+      setNodeBorder(nodeIdx, "#cf222e", 3);
+    }
+  }
+
+  // 节点边框高亮(直接改 DOM, 因为 Plotly restyle 对 sankey node.line 无效)
+  function setNodeBorder(idx, color, width){
+    var rects = document.querySelectorAll("#chartBox .sankey-node rect");
+    if(idx >= 0 && idx < rects.length){
+      rects[idx].style.stroke = color;
+      rects[idx].style.strokeWidth = width + "px";
+    }
+  }
+  function resetNodeBorders(){
+    var rects = document.querySelectorAll("#chartBox .sankey-node rect");
+    for(var i=0;i<rects.length;i++){
+      rects[i].style.stroke = "rgb(0, 0, 0)";
+      rects[i].style.strokeWidth = "0.5px";
+    }
   }
 
   function clearHighlight(){
     if(!state.cpkResult || typeof Plotly === "undefined") return;
-    var nNodes = state.cpkResult.nodes.label.length;
     var gd = document.querySelector(".js-plotly-plot");
-    if(gd) Plotly.restyle(gd, {
-      "link.color": [state.cpkResult.links.color.slice()],
-      "node.line.color": [new Array(nNodes).fill("black")],
-      "node.line.width": [new Array(nNodes).fill(0.5)],
-    }, [0]);
+    if(gd) Plotly.restyle(gd, { "link.color": [state.cpkResult.links.color.slice()] }, [0]);
+    resetNodeBorders();
   }
 
   function initCpkPanel(){
@@ -2555,7 +2562,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.7.4</b> · 最近更新 2026-08-18</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.7.5</b> · 最近更新 2026-08-18</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2565,6 +2572,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.7.5',date:'2026-08-18',tag:'fix',tagTxt:'修复',
+   items:['修复 v3.7.3 隐藏 bug：节点边框高亮实际未生效——Plotly sankey 的 restyle 对 node.line.color/width 不生效(实测断点确认), 改用直接操作 DOM 设置 stroke/strokeWidth(高亮/清除/切配色三处)','修复长期隐藏 bug：导出 PNG/SVG 报"请先生成桑基图"——downloadImage 的 chart.querySelector(".js-plotly-plot") 查的是 chartBox 子元素, 但 js-plotly-plot class 在 chartBox 自身上, 永远找不到; 改为优先匹配自身','浏览器实测验证(Edge): 节点红色粗边框持久 0~1200ms、PNG 导出 688KB 中文正常、双图对比(上午 NG 4.8% vs 下午 2.8%) 并排渲染、点击恢复/「其他」明细展开/CPK 联动全部正常','已知 P3(暂未修): 窄屏(<420px) chartBox 面板 min-width:420px 造成水平溢出, 建议改为 min-width:0 或 320px'],
+   sub:'用户确认后跑完整视觉/体验测试(8 项), 发现 v3.7.3 边框高亮未生效 + 长期导出 bug 均修复, 并暴露 1 个 P3 响应式改进项。'},
   {ver:'v3.7.4',date:'2026-08-18',tag:'fix',tagTxt:'修复',
    items:['修复 v3.7.3 引入的回归：节点 hover 完全失效——Plotly sankey 的 node.hovertemplate 不支持字符串数组（传入数组导致悬停信息消失），已恢复单一字符串模板，小样本警示文本改放 customdata 第 8 字段用 %{customdata[7]} 引用（空串自动不显示）','顺带修复 v2.x 遗留：链路 hover 被 hoverinfo:"none" 完全禁用（hovertemplate 不生效，悬停显示空白），已移除该配置，链路现在显示「源 → 目标 样本数」','浏览器实测验证：节点 hover 完整显示列名/NG占比/样本数/完整取值/小样本警示，链路 hover 正常显示'],
    sub:'用户反馈「鼠标放到节点上不显示详细信息」：根因是 v3.7.3 把 hovertemplate 数组化触发 Plotly 已知限制，回归修复 + 顺带修复链路 hover 老问题，均已实测验证。'},
