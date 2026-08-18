@@ -349,7 +349,7 @@
       <summary>📐 CPK 过程能力分析（联合判定）</summary>
       <div class="hint" style="margin:6px 0 10px">
         点击图上任意节点（如红色型号 / 参数区间 / NG），自动筛选出该子集。<br>
-        对比<b>「当前范围 / 全量 / 仅 OK / 仅 NG」</b>的 CPK：子集 CPK 低 → 该参数确有偏移 / 发散；CPK 正常 → 参数没问题，NG 另有其因。
+        对比<b>「当前筛选 / 全量 / 仅 OK / 仅 NG」</b>的 CPK：子集 CPK 低 → 该参数确有偏移 / 发散；CPK 正常 → 参数没问题，NG 另有其因。
       </div>
 
       <div class="section-title">数据范围（点击图上节点会自动切到「当前筛选」）</div>
@@ -403,8 +403,7 @@
     var warnBar = document.createElement("div");
     warnBar.style.cssText = "position:sticky;top:0;z-index:99;background:#fff3cd;color:#664d03;" +
       "padding:8px 14px;font-size:13px;text-align:center;border-bottom:1px solid #f0dc9b";
-    warnBar.innerHTML = "⚠ 核心逻辑加载失败（网络波动），部分功能暂不可用——页面已自动重试，稍后刷新即可。" +
-      "若持续出现，请检查网络后刷新。";
+    warnBar.innerHTML = "⚠ 核心逻辑加载失败（网络波动），部分功能暂不可用——已自动重试加载，若仍失败请检查网络后刷新页面。";
     document.body.prepend(warnBar);
     // 自动重试一次
     ensureCore().then(function(){
@@ -589,6 +588,7 @@
     state.filter = null;
     state.cpkScope = "all";
     state.cpkResult = null;
+    state._timeSorted = false;   // 新数据需重新按时间列排序(时间演化滑条依赖)
     $("panelSel").style.display = "";
     setInfo("已载入「"+(name||"粘贴数据")+"」："+rows.length.toLocaleString()+" 行 × "+header.length+" 列", "ok");
     // 小屏优化: 数据已载入, 自动收起「数据」面板给选列/出图腾空间(可点标题旁按钮展开)
@@ -780,6 +780,7 @@
       var label = document.createElement("label");
       label.className = "chk";
       label.setAttribute("data-col", col);
+      label.title = col;   // 网格内列名被截断时, 悬停可看完整列名
       var cb = document.createElement("input");
       cb.type = "checkbox";
       cb.value = col;
@@ -944,7 +945,7 @@
     if(!cands.length){ setInfo("没有可选的参数列", "warn"); return; }
     var ngVals = [];
     $("ngList").querySelectorAll("input[type=checkbox]:checked").forEach(function(b){ ngVals.push(b.value); });
-    if(!ngVals.length){ setInfo("请先在「哪些值算不良」里勾选不良值", "warn"); return; }
+    if(!ngVals.length){ setInfo("请先在「哪些值算不良」勾选不良值", "warn"); return; }
     var bins = parseInt($("selBins").value, 10) || 5;
     var scores = SankeyCore.scoreColumns(state.rows, state.header, sourceCol(), resultCol(), ngVals, bins);
     // 只对候选列打分, 排除元数据列(-1)和无区分度(0)的
@@ -1367,7 +1368,7 @@
       var ngVals = currentNgVals();
       var snap = {
         app: "equipment-failure-commonality",
-        version: "v3.8.3",
+        version: "v3.8.4",
         time: new Date().toISOString(),
         source: sourceCol(), result: resultCol(), ng: ngVals, params: params,
         processOrder: state.processOrder || [],
@@ -2776,7 +2777,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.3</b> · 最近更新 2026-08-18</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.4</b> · 最近更新 2026-08-18</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2786,6 +2787,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.8.4',date:'2026-08-18',tag:'fix',tagTxt:'修复',
+   items:['修复 P2：切换数据后时间演化排序残留——loadData 未重置 _timeSorted，先加载含时间列数据再加载新数据时，时间轴滑条基于未排序数据切片，演化失真；现 loadData 重置该标记，新数据自动重新按时间排序','参数列表截断补全名：网格内长列名被省略号截断后无法看全，现 label 加 title 悬停显示完整列名','文案统一：核心加载失败警告条去掉自相矛盾的「已自动重试，稍后刷新即可」→「已自动重试加载，若仍失败请检查网络后刷新页面」','CPK 面板说明「当前范围」→「当前筛选」（与范围切换按钮文案一致）','不良值提示两处措辞统一（去掉多余的「里」字）'],
+   sub:'v3.8.3 后的代码审查 + 文案审查轮：1 个 P2 状态残留 bug（时间轴） + 1 个 P3 可用性（截断补全名） + 3 处文案统一。浏览器冒烟全流程无 JS 错误。'},
   {ver:'v3.8.3',date:'2026-08-18',tag:'feat',tagTxt:'小屏体验',
    items:['参数列表两列网格：33 列参数从一列变两列，换参数滚动距离减半','参数搜索框：在筛选条(全部/已勾选/推荐列)旁加「🔍 搜参数名…」输入框，输入即时过滤，与分类筛选叠加生效（搜「注水」直接定位 5 项相关参数）','参数列表限高内部滚动：max-height 280px + overflow-y:auto，避免参数区撑高整个页面','三面板可折叠：每个面板标题加「收起 ▴/展开 ▾」按钮，按需收起不用的板块给其他区腾空间','数据面板自动收起：loadData 成功后数据面板默认折叠（粘贴/拖文件均已结束，textarea 使命完成），小屏默认三板块同屏可见——点标题按钮可随时展开','出图按钮粘性：#plot-bar 加 position:sticky top:0 z-index:40，滚动页面时「🚀 生成桑基图」按钮始终可见可点'],
    sub:'用户反馈小屏笔记本：① 三板块不能同屏 ② 参数列长换参数要滚很久。三个 CSS + 少量 JS 改动，浏览器实测数据面板自动收起、参数两列网格 + 搜索 5 项命中、出图按钮 sticky top:0、面板折叠切换正常。'},
