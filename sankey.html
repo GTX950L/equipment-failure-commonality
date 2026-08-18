@@ -37,6 +37,24 @@
             border-bottom:2px solid #eef1f4;padding-bottom:8px;display:flex;align-items:center;gap:7px}
   .step{background:linear-gradient(135deg,#3d83c9,#24507e);color:#fff;border-radius:50%;width:20px;height:20px;font-size:11px;
         display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;box-shadow:0 1px 3px rgba(36,80,126,.3)}
+  /* 面板折叠(小屏笔记本: 收掉不用的板块, 出图区露出) */
+  .panel-toggle{background:none;border:1px solid var(--border);color:#6a737d;cursor:pointer;font-size:11.5px;
+        padding:1px 8px;border-radius:6px;margin-left:auto;flex:0 0 auto;line-height:1.7}
+  .panel-toggle:hover{background:#f0f2f5;color:#1f2328}
+  .panel.collapsed .panel-body{display:none}
+  /* 参数列网格(两列) + 限高内部滚动: 30+ 列时不再整页滚动 */
+  #paramList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 12px;
+        max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;
+        padding:6px 10px;background:#fff;align-content:start}
+  #paramList .param-filter{grid-column:1/-1;margin-bottom:4px}
+  #paramList .chk{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  #paramList .process-box{grid-column:1/-1;margin-top:8px}
+  #paramSearch{flex:1 1 140px;min-width:110px;padding:4px 8px;border:1px solid var(--border);
+        border-radius:6px;font-size:12px;color:#1f2328;background:#fff}
+  #paramSearch:focus{outline:none;border-color:var(--c-primary)}
+  /* 出图按钮粘性: 参数滚动时按钮始终可见 */
+  .plot-bar{position:sticky;top:0;z-index:40;background:var(--card);padding:8px 0 4px;margin-top:6px;border-bottom:1px solid transparent}
+  .plot-bar.is-stuck{border-bottom-color:var(--border)}
   textarea{width:100%;height:160px;font-family:Consolas,Menlo,"Courier New",monospace;font-size:12.5px;
            border:1px solid var(--border);border-radius:8px;padding:9px;resize:vertical;color:#1f2328}
   textarea:focus{outline:none;border-color:var(--c-primary);box-shadow:0 0 0 3px rgba(47,109,181,.12)}
@@ -221,7 +239,8 @@
 <div class="wrap">
   <!-- ============ 面板 ① 数据 ============ -->
   <div class="panel">
-    <h2><span class="step">1</span> 数据</h2>
+    <h2><span class="step">1</span> 数据<button class="panel-toggle" type="button">收起 ▴</button></h2>
+    <div class="panel-body">
     <textarea id="dataArea" placeholder="直接粘贴 CSV / Excel 复制出来的表格：&#10;&#10;料号,条码,注水阀,注水量-g,测试结果&#10;M0V405N00D-1,KJCHUZB01RU0001T1D+A466P,1,0.1108,PASS&#10;M0V405N00D-1,KJCHUZB05NK0001T1D+A461P,3,0.1111,FAIL&#10;&#10;（列名任意、列数不限，只需首行是列名）&#10;或点击下方按钮选择文件 / 把文件拖进来"></textarea>
     <div id="parseInfo" class="parseinfo"></div>
     <div style="margin-top:10px">
@@ -232,11 +251,13 @@
     <div class="dropzone" id="dropzone">📂 点击选择文件，或直接把文件拖到这里，<br><span style="font-size:11px">支持 .csv / .xlsx / .xls（自动识别表头）</span></div>
     <input type="file" id="fileInput" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none">
     <div class="hint">💡 没有现成数据？点「加载示例数据」先体验。</div>
+    </div>
   </div>
 
   <!-- ============ 面板 ② 选列 ============ -->
   <div class="panel" id="panelSel" style="display:none">
-    <h2><span class="step">2</span> 打钩选择参与分析的列</h2>
+    <h2><span class="step">2</span> 打钩选择参与分析的列<button class="panel-toggle" type="button">收起 ▴</button></h2>
+    <div class="panel-body">
 
     <details id="headerBox">
       <summary>📋 自动识别的表头（点开查看每列类型与样例值）</summary>
@@ -267,16 +288,18 @@
       <label>源列保留多少个<select id="selTopN"></select><span class="hint" style="font-weight:400;margin-top:2px">建议 5~10，其余合并为「其他」</span></label>
       <label>数值分箱数<select id="selBins"></select><span class="hint" style="font-weight:400;margin-top:2px">建议 4~6，值越多分得越细</span></label>
     </div>
+    </div>
   </div>
 
   <!-- ============ 面板 ③ 出图 ============ -->
   <!-- min-width 由 420 改为 300: 修复窄屏(<420px)水平溢出 -->
   <div class="panel" style="flex:2 1 520px;min-width:300px">
-    <h2><span class="step">3</span> 出图</h2>
+    <h2><span class="step">3</span> 出图<button class="panel-toggle" type="button">收起 ▴</button></h2>
+    <div class="panel-body">
     <div id="chartArea">
       <div class="empty-tip">先在「打钩选择」面板里选好列，再点「🚀 生成桑基图」。</div>
     </div>
-    <div style="margin-top:10px">
+    <div class="plot-bar">
       <button id="btnPlot" type="primary">🚀 生成桑基图</button>
       <button id="btnCompare" class="sec">🔁 双图对比</button>
       <button id="btnPng" class="sec">💾 下载 PNG</button>
@@ -342,6 +365,7 @@
       <span class="hint" style="display:inline-block;margin-left:6px">规格限 LSL/USL 请填图纸 / 客户标准值，留空则用 μ±3σ 试算占位。</span>
       <div id="cpkResult" style="margin-top:10px"></div>
     </details>
+    </div>
   </div>
 </div>
 
@@ -567,6 +591,13 @@
     state.cpkResult = null;
     $("panelSel").style.display = "";
     setInfo("已载入「"+(name||"粘贴数据")+"」："+rows.length.toLocaleString()+" 行 × "+header.length+" 列", "ok");
+    // 小屏优化: 数据已载入, 自动收起「数据」面板给选列/出图腾空间(可点标题旁按钮展开)
+    var p1 = document.querySelector(".wrap > .panel");
+    if(p1 && !p1.classList.contains("collapsed")){
+      p1.classList.add("collapsed");
+      var tb = p1.querySelector(".panel-toggle");
+      if(tb) tb.textContent = "展开 ▾";
+    }
     renderHeaderTable();
     renderSelects();
     autoRecommend();
@@ -739,6 +770,7 @@
       '<button class="chip sel" data-f="all">全部</button>' +
       '<button class="chip" data-f="checked">已勾选</button>' +
       '<button class="chip" data-f="rec">推荐列</button>' +
+      '<input type="search" id="paramSearch" placeholder="🔍 搜参数名…" autocomplete="off">' +
       '<span class="hint" id="paramCount" style="margin-left:6px"></span>';
     list.appendChild(filterBar);
     // 按表头顺序展示（不排序、不自动勾选）
@@ -762,22 +794,27 @@
       frag.appendChild(label);
     });
     list.appendChild(frag);
-    // 筛选交互 + 计数
+    // 筛选交互 + 计数（分类筛选 × 搜索词叠加）
     var curFilter = "all";
     function applyParamFilter(){
       var recSet = {};
       (state.lastRecTop || []).forEach(function(c){ recSet[c] = true; });
+      var kw = ($("paramSearch").value || "").trim().toLowerCase();
       list.querySelectorAll("label[data-col]").forEach(function(lb){
         var cb = lb.querySelector("input");
+        var col = lb.getAttribute("data-col");
         var show = curFilter === "all" ||
           (curFilter === "checked" && cb.checked) ||
-          (curFilter === "rec" && recSet[lb.getAttribute("data-col")]);
+          (curFilter === "rec" && recSet[col]);
+        if(show && kw && col.toLowerCase().indexOf(kw) < 0) show = false;   // 搜索词叠加过滤
         lb.style.display = show ? "" : "none";
       });
       var checkedN = list.querySelectorAll("input[type=checkbox]:checked").length;
       var pc = $("paramCount");
       if(pc) pc.textContent = "已勾选 " + checkedN + " 列";
     }
+    var searchInput = $("paramSearch");
+    if(searchInput) searchInput.addEventListener("input", applyParamFilter);
     filterBar.querySelectorAll(".chip").forEach(function(ch){
       ch.addEventListener("click", function(){
         curFilter = ch.getAttribute("data-f");
@@ -1330,7 +1367,7 @@
       var ngVals = currentNgVals();
       var snap = {
         app: "equipment-failure-commonality",
-        version: "v3.8.2",
+        version: "v3.8.3",
         time: new Date().toISOString(),
         source: sourceCol(), result: resultCol(), ng: ngVals, params: params,
         processOrder: state.processOrder || [],
@@ -1762,6 +1799,14 @@
     });
   });
   initCompare();
+  // 面板折叠(小屏笔记本): 点击面板标题旁的按钮收起/展开, 让出图区露出
+  document.querySelectorAll(".panel-toggle").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var panel = btn.closest(".panel");
+      var collapsed = panel.classList.toggle("collapsed");
+      btn.textContent = collapsed ? "展开 ▾" : "收起 ▴";
+    });
+  });
   // 后台预加载绘图引擎: 打开页面即下载(4.5MB), 用户点生成时引擎已就绪 → 秒出图
   // 与按钮点击共享同一 Promise, 不会重复下载。脚本在 body 末尾执行, DOM 已就绪, 无需延迟
   function preloadPlotly(){
@@ -2731,7 +2776,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.2</b> · 最近更新 2026-08-18</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.3</b> · 最近更新 2026-08-18</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2741,6 +2786,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.8.3',date:'2026-08-18',tag:'feat',tagTxt:'小屏体验',
+   items:['参数列表两列网格：33 列参数从一列变两列，换参数滚动距离减半','参数搜索框：在筛选条(全部/已勾选/推荐列)旁加「🔍 搜参数名…」输入框，输入即时过滤，与分类筛选叠加生效（搜「注水」直接定位 5 项相关参数）','参数列表限高内部滚动：max-height 280px + overflow-y:auto，避免参数区撑高整个页面','三面板可折叠：每个面板标题加「收起 ▴/展开 ▾」按钮，按需收起不用的板块给其他区腾空间','数据面板自动收起：loadData 成功后数据面板默认折叠（粘贴/拖文件均已结束，textarea 使命完成），小屏默认三板块同屏可见——点标题按钮可随时展开','出图按钮粘性：#plot-bar 加 position:sticky top:0 z-index:40，滚动页面时「🚀 生成桑基图」按钮始终可见可点'],
+   sub:'用户反馈小屏笔记本：① 三板块不能同屏 ② 参数列长换参数要滚很久。三个 CSS + 少量 JS 改动，浏览器实测数据面板自动收起、参数两列网格 + 搜索 5 项命中、出图按钮 sticky top:0、面板折叠切换正常。'},
   {ver:'v3.8.2',date:'2026-08-18',tag:'fix',tagTxt:'修复',
    items:['修复「SankeyCore is not defined」：GitHub Pages 网络抖动导致 sankey_core.js(同步加载)失败时页面仍可打开，点「加载示例数据」等操作才爆 ReferenceError——现增加三层保障：① 首屏检测核心未就绪时显示醒目警告条并自动重试加载；② 点示例时 ensureCore 等待重试完成再继续；③ loadData/plotSankey 入口加就绪检查，失败给出明确提示','UMD 双保险：sankey_core.js 显式挂载 window.SankeyCore，兼容 window/global 分离环境','浏览器实测：拦截 sankey_core.js 首次请求 → 警告条出现、点示例自动重试成功、数据正常载入（不再裸报错）'],
    sub:'用户反馈线上点「加载示例数据」报 SankeyCore is not defined：本地/部署检查均正常，判定为网络抖动下核心 JS 加载失败的健壮性问题，三层加固并实测自动恢复。'},
