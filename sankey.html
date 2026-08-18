@@ -505,7 +505,6 @@
     autoRecommend();
     renderQualityReport();
     checkNgDrift();
-    autoRecommend();
     var hadCfg = restoreLastConfig();   // 尝试恢复上次保存的配置(列名匹配才生效)
     renderParams();
     initCpkPanel();
@@ -1041,8 +1040,10 @@
       if(badKw.some(function(k){ return u.key.indexOf(k) >= 0; })) autoKeys[u.key] = true;
     });
     if(!Object.keys(autoKeys).length){
-      items.slice().sort(function(a,b){ return a.count - b.count; });
-      autoKeys[items[0].key] = true;
+      // 无关键词命中 → 勾少数派为不良。注意: 必须对 items 原地排序,
+      // 原实现 items.slice().sort() 结果被丢弃, items[0] 是原始顺序第一项(通常恰是正常值)导致勾错
+      items.sort(function(a,b){ return a.count - b.count; });
+      if(items.length) autoKeys[items[0].key] = true;
     }
 
     items.forEach(function(u){
@@ -1131,7 +1132,8 @@
       if(!ngVals.length) return;
       var dq = SankeyCore.dataQualityReport(state.rows, state.header, resultCol(), ngVals);
       var cur = Math.round(dq.ngRate * 10000) / 100;
-      var key = "sankey_ng_" + (resultCol() || "?");
+      // key 含列数指纹: 不同结构的数据集(列数不同)不互相比较, 避免跨文件误报漂移
+      var key = "sankey_ng_" + (resultCol() || "?") + "_" + state.header.length + "c";
       var last = parseFloat(localStorage.getItem(key) || "NaN");
       localStorage.setItem(key, String(cur));
       if(!isNaN(last) && Math.abs(cur - last) >= 0.5){
@@ -1255,7 +1257,7 @@
       var ngVals = currentNgVals();
       var snap = {
         app: "equipment-failure-commonality",
-        version: "v3.5.0",
+        version: "v3.7.2",
         time: new Date().toISOString(),
         source: sourceCol(), result: resultCol(), ng: ngVals, params: params,
         processOrder: state.processOrder || [],
@@ -1871,11 +1873,8 @@
       scheduleCalcCpk();
     });
     $("otherSelectNg").addEventListener("click", function(){
-      box.querySelectorAll("input[type=checkbox]").forEach(function(b){
-        var label = b.closest("label");
-        b.checked = label && label.textContent.indexOf("NG 1") >= 0 ? false : false;
-      });
-      // 直接勾选 NG≥1 的项: 通过行数据重新判断
+      // 先全不勾, 再勾选 NG≥1 的项 (通过行数据重新判断)
+      box.querySelectorAll("input[type=checkbox]").forEach(function(b){ b.checked = false; });
       merged.forEach(function(e){
         if(e.ng >= 1){
           box.querySelectorAll("input[type=checkbox]").forEach(function(b){
@@ -1975,15 +1974,19 @@
     var resCol = resultCol();
     var first = null;
     // 元数据/时间类列不作为 CPK 分析参数
-    var skipKw = ["时间","时刻","日期","time","date","cdate","编号","码","id","user",
-                  "name","设备","车间","线别","部门","站点","通道","异常","错误",
-                  "code","retest","工单","单据","pcid","rework","返工","复测","操作员"];
+    // 英文短词(id/user/name/code/time/date)用词边界匹配, 避免 "candidate" 被 "id" 误杀
+    var skipKw = ["时间","时刻","日期","cdate","编号","码","retest",
+                  "设备","车间","线别","部门","站点","通道","异常","错误",
+                  "工单","单据","pcid","rework","返工","复测","操作员"];
+    var skipEn = ["time","date","id","user","name","code"];
     state.header.forEach(function(c){
       if(colType(state.header, c) !== "num") return;
       if(c === resCol) return;   // 结果列不算数值参数
       if(isDateLikeCol(c)) return;   // 日期列误判为数值
       var low = String(c).toLowerCase();
-      if(skipKw.some(function(k){ return low.indexOf(k) >= 0; })) return;  // 元数据列
+      var hitSkip = skipKw.some(function(k){ return low.indexOf(k) >= 0; }) ||
+        skipEn.some(function(k){ return new RegExp("(^|[^a-z0-9])" + k + "([^a-z0-9]|$)").test(low); });
+      if(hitSkip) return;  // 元数据列
       var o = document.createElement("option");
       o.value = c; o.textContent = c;
       sel.appendChild(o);
@@ -2090,7 +2093,8 @@
     a.href = URL.createObjectURL(blob);
     a.download = filename;
     a.click();
-    URL.revokeObjectURL(a.href);
+    // 延迟回收, 避免个别浏览器在下载开始前就 revoke 导致保存失败
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 3000);
   }
 
   // 点击节点后：按层类型把节点值还原成可匹配的数据子集
@@ -2201,7 +2205,7 @@
   function scheduleCalcCpk(){
     clearTimeout(cpkTimer);
     cpkTimer = setTimeout(function(){
-      scheduleCalcCpk();
+      calcCpk();
     }, 250);
   }
 
@@ -2520,7 +2524,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.7.1</b> · 最近更新 2026-08-16</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.7.2</b> · 最近更新 2026-08-18</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -2530,6 +2534,9 @@
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.7.2',date:'2026-08-18',tag:'fix',tagTxt:'修复',
+   items:['修复 P0：CPK 面板自动计算完全失效——scheduleCalcCpk 防抖回调误调用自身（死循环每 250ms 空转），点击节点/切换范围后下方 CPK 面板永不更新，改为正确调用 calcCpk()','修复 P1：结果列无关键词时「不良值」自动识别勾错——少数派逻辑 items.slice().sort() 结果被丢弃，实际勾到的是原始顺序第一项（通常恰是正常值如 PASS/1），导致 NG/OK 定义反转全图红蓝颠倒；改为原地排序取真正少数派','修复：桑基图标题取错——原用缩短 label 查完整条码聚合表（必 miss）导致标题固定显示数据最后一行（demo 实测「其他 & 6 more」），改为直接取 NG 数最多的源值并缩短展示','修复：时间列误判为数值列——toNumber 对 "8:30" 去冒号得 830，HH:MM 格式时间列被当数值分箱成 [830~930] 无意义区间；增加冒号/日期格式拦截','修复：数值列 ≥99% 同值时（如 999 个 0+1 个离群）分箱宽度为 0，产生 "[NaN ~ NaN]" 标签；改为该场景直接返回原值、离群值仍标 <lo/>hi','修复：全 NG 数据节点全灰（baseline=1 时 axis 恒 0），应红色警示却显示中性灰；基线异常时统一以 0.5 为参考，全 NG 全红/全 OK 全蓝','修复：源层缩短 label 碰撞——两个不同完整条码缩短后相同会被合并成同一节点且点击无法筛到第二个值；冲突时退化为完整值作 label 保证唯一','修复：列名黑名单子串误伤——"id" 误杀 candidate/grid、"no" 误杀 number 等；英文短词改词边界匹配（scoreColumns 与 CPK 参数列两处）','修复：粘贴带 UTF-8 BOM 的文本时首列名带 \uFEFF；导出 CSV 立即 revokeObjectURL 个别浏览器保存失败；数据质量报告缺失标记大小写不敏感（NAN/Null/None）；NG 漂移检测 key 加列数指纹避免跨数据集误报','清理：「只勾 NG 值」按钮死代码；loadData 中 autoRecommend 重复调用；分析快照版本号 v3.5.0→v3.7.2 与实际一致'],
+   sub:'按审查报告 P0~P3 全量修复并推送：1 个 P0（CPK 面板失效）+ 1 个 P1（不良值勾错）+ 6 个 P2 + 7 个 P3，共 16 处；核心算法层 test_core.js 全部断言通过，新增边界定向验证 9/9 通过。'},
   {ver:'v3.7.1',date:'2026-08-16',tag:'fix',tagTxt:'文案优化',
    items:['排查指南三处精修：步骤1「多值取少数派」补解释（通常即 NG 类）；步骤3红色分叉表述理顺（起点层=根因下游第一站，沿上游找到最早分叉层）；陷阱三「放行至第 1、2 名」→「前两名」','根因报告章节按证据强度重排：决策树规则（一）→ 组合线索（二）→ 强相关参数对（三）→ 时段/班次效应（四）→ 结论与措施（五），读报告即可沿「规则→交互→同源→环境」逐层定位','参数行显示优化：设置了工序顺序才用箭头「→」，否则用顿号分隔，避免误导为工序流','组合线索章节增加故障分类列过滤（与推荐面板一致）：「异常原因/错误代码」类组合移到末尾，避免刷屏冲淡工艺交互根因','补全边界：强相关章节在参数不足 2 列时输出「参数少于 2 列，跳过同源分析」提示（原为空白章节）；时段结论追加「次高时段」对比数据'],
    sub:'延续 v3.7.0 文字审查：本次聚焦排查指南与根因报告两个弹层的文案质量与报告逻辑，共 8 处精修。'},

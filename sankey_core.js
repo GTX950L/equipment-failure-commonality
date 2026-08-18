@@ -51,7 +51,8 @@
 
   function parseDelimited(text) {
     /** 解析 CSV/TSV，返回 { header: string[], rows: string[][] } */
-    const lines = text.replace(/\r\n?/g, "\n").split("\n");
+    // 剥离 UTF-8 BOM, 避免首列名带上 \uFEFF
+    const lines = text.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
     // 跳过空行和注释行
     const dataLines = [];
     for (let i = 0; i < lines.length; i++) {
@@ -108,7 +109,11 @@
   // ---------------------------------------------------------------------
   function toNumber(v) {
     if (v === null || v === undefined) return NaN;
-    const s = String(v).trim().replace(/,/g, "").replace(/[^\d.eE+-]/g, "");
+    const orig = String(v).trim();
+    if (orig === "") return NaN;
+    // 时间/日期类字符串不当作数值: "8:30" 去冒号后是 830, 会被误判为数值列
+    if (/[:：]/.test(orig) || /^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(orig)) return NaN;
+    const s = orig.replace(/,/g, "").replace(/[^\d.eE+-]/g, "");
     if (s === "") return NaN;
     const n = Number(s);
     return isFinite(n) ? n : NaN;
@@ -156,6 +161,17 @@
     const p99 = valid[Math.min(valid.length - 1, Math.floor(valid.length * 0.99))];
     const lo = p1, hi = p99;
     const width = (hi - lo) / nBins;
+    if (!(width > 0)) {
+      // p1===p99: 正常值高度集中(如 999 个 0 + 1 个离群), 分箱无意义;
+      // 直接返回原值, 仅把截尾边界外的离群值标为 <lo / >hi, 避免 [NaN ~ NaN] 标签
+      return values.map(function (v) {
+        const n = toNumber(v);
+        if (isNaN(n)) return "(空值)";
+        if (n < lo) return "<" + fmt(lo);
+        if (n > hi) return ">" + fmt(hi);
+        return String(v);
+      });
+    }
     const fmt = function (x) {
       return String(Math.round(x * 1e5) / 1e5);
     };
@@ -226,7 +242,9 @@
   // 颜色
   // ---------------------------------------------------------------------
   function ngRatioToColorAxis(ngRatio, baseline) {
-    if (!(baseline > 0)) baseline = 0.5;
+    // 全 OK(baseline=0) 或 全 NG(baseline=1) 时 diff 恒为 0 → 全灰, 失去红蓝语义;
+    // 统一以 0.5 为参考: 全 OK 全蓝 / 全 NG 全红, 与正常数据的行为一致
+    if (!(baseline > 0) || baseline >= 1) baseline = 0.5;
     const diff = (ngRatio - baseline) / Math.max(baseline, 0.05);
     return Math.tanh(diff * 1.5);
   }
@@ -389,7 +407,15 @@
     });
 
     // 3. 各层节点
-    const srcShort = rows.map(function (r) { return shortenLabel(r.src); });
+    // 源层缩短 label 必须唯一: 两个不同完整条码缩短后相同(如前缀/后缀都相同)会被合并成
+    // 同一节点, 且点击节点无法筛到第二个值。冲突时退化为完整值作 label。
+    const usedShort = new Set();
+    const srcShort = rows.map(function (r) {
+      let s = shortenLabel(r.src);
+      if (usedShort.has(s)) s = r.src;
+      usedShort.add(s);
+      return s;
+    });
     const paramLayers = paramCols.map(function (_, i) {
       return prepareLayer(
         rows.map(function (r) { return r.params[i]; }),
@@ -488,10 +514,13 @@
       });
     });
 
-    // 7. 标题
-    const head = srcShort.slice().sort(function (a, b) {
-      return (srcAgg.get(a) || { ng: 0 }).ng - (srcAgg.get(b) || { ng: 0 }).ng;
-    }).pop();
+    // 7. 标题: 取「NG 数最多」的源值(完整条码), 展示用缩短 label
+    //    原实现用缩短后的 label 去查 srcAgg(完整 key), 几乎必 undefined → 排序失效 → pop() 取到数据最后一行
+    let headRaw = "", headNg = -1;
+    srcAgg.forEach(function (e, k) {
+      if (e.ng > headNg) { headNg = e.ng; headRaw = k; }
+    });
+    const head = headRaw ? shortenLabel(headRaw) : "其他";
     const title = head + " & " + Math.max(0, layerNodes[0].length - 1) + " more";
 
     // 节点所属层信息（供"点击节点 → 筛选数据子集"使用）
@@ -501,10 +530,11 @@
     const nodeColName = [];
     // 每个节点用于筛选的原始值: 源层用完整值, 参数层用分箱/合并后的标签
     const nodeFilterValue = [];
-    // 源层: shortenLabel 之后无法直接匹配原始行, 需要映射回完整值
+    // 源层: 缩短 label 之后无法直接匹配原始行, 需要映射回完整值。
+    // 必须与 srcShort 数组索引对齐(同一 label 唯一, 冲突时 srcShort 已退化为完整值)
     const srcShortToRaw = {};
-    rows.forEach(function (r) {
-      const key = shortenLabel(r.src);
+    rows.forEach(function (r, i) {
+      const key = srcShort[i];
       if (!(key in srcShortToRaw)) srcShortToRaw[key] = r.src;
     });
 
@@ -598,12 +628,15 @@
     }
 
     // 元数据列名启发式排除
+    // 中文词/复合词用子串匹配; 英文短词(id/no/user/name/code/time/date)用词边界匹配,
+    // 避免 "candidate" 被 "id" 误杀、"number" 被 "no" 误杀这类子串误伤
     const excludeKw = [
-      "时间", "时刻", "日期", "time", "date", "cdate", "datetime",
-      "编号", "码", "单据", "工单", "批次", "批号", "id", "no", "pcd",
-      "user", "name", "设备", "车间", "线别", "部门", "站点", "通道",
-      "异常", "错误", "code", "retest", "rework", "复测", "返工", "操作员",
+      "时间", "时刻", "日期", "cdate", "datetime",
+      "编号", "码", "单据", "工单", "批次", "批号", "pcd",
+      "设备", "车间", "线别", "部门", "站点", "通道",
+      "异常", "错误", "retest", "rework", "复测", "返工", "操作员",
     ];
+    const excludeEn = ["time", "date", "id", "no", "user", "name", "code"];
     // 故障分类列例外: 列名同时含「故障信号词」与「分类特征词」(如 异常原因 / 错误代码 / 不良类别)
     // 这类列是"问题到底出在哪"的直接证据, 不能被黑名单一刀切排除。
     const faultClassKw = ["原因", "代码", "类别", "分类", "说明", "描述", "备注", "类型"];
@@ -614,7 +647,11 @@
       const low = String(col).toLowerCase();
       const isFaultClass = faultClassKw.some(function (k) { return low.indexOf(k) >= 0; }) &&
                            faultSignalKw.some(function (k) { return low.indexOf(k) >= 0; });
-      if (!isFaultClass && excludeKw.some(function (k) { return low.indexOf(k) >= 0; })) { scores[col] = -1; return; }
+      const hitExclude = excludeKw.some(function (k) { return low.indexOf(k) >= 0; }) ||
+        excludeEn.some(function (k) {
+          return new RegExp("(^|[^a-z0-9])" + k + "([^a-z0-9]|$)").test(low);
+        });
+      if (!isFaultClass && hitExclude) { scores[col] = -1; return; }
 
       const vals = data.map(function (r) {
         return r[col] === null || r[col] === undefined ? "" : r[col];
@@ -764,7 +801,8 @@
       const uniq = new Set();
       vals.forEach(function (v) {
         const s = String(v).trim();
-        if (s === "" || s === "nan" || s === "NaN" || s === "null") missing++;
+        // 缺失标记大小写不敏感: NaN/NAN/Null/NULL/none/NA 都算缺失
+        if (s === "" || /^(nan|null|undefined|none|na)$/i.test(s)) missing++;
         else uniq.add(s);
       });
       let type = "text";
