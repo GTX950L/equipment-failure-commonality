@@ -409,10 +409,10 @@
 
   function verdictForCpk(cpk) {
     /** 判级：与 cpk_calculator.html 保持一致的 A/B/C/D 分级 */
-    if (!isFinite(cpk)) return { level: "?", text: "无法判定", color: "#6a737d" };
+    if (!isFinite(cpk)) return { level: "?", text: "无法判定", color: "#64748b" };
     if (cpk >= 1.67) return { level: "A", text: "优秀", color: "#1a7f37" };
     if (cpk >= 1.33) return { level: "B", text: "合格", color: "#0969da" };
-    if (cpk >= 1.0) return { level: "C", text: "边缘", color: "#bf8700" };
+    if (cpk >= 1.0) return { level: "C", text: "边缘", color: "#9a6700" };
     return { level: "D", text: "不足", color: "#cf222e" };
   }
 
