@@ -401,7 +401,18 @@
      * 计算过程能力指数。lsl / usl 可传 null 表示单侧。
      * 返回 {n, mean, sd, cp, cpk, usable}；数据不足或 σ=0 时 usable=false。
      */
-    const clean = values.filter(function (v) { return isFinite(Number(v)); }).map(Number);
+    // 严格数值清洗: 空串/null/undefined 及伪数值("12abc"/"0.5.5"/"8:30")不计入。
+    // 旧实现 isFinite(Number(v)) 会把 Number("")=0、Number(null)=0 当 0 计入,
+    // 空值会拉低均值/标准差, 使 Cpk 结果失真。
+    const clean = [];
+    values.forEach(function (v) {
+      if (v === null || v === undefined) return;
+      const s = String(v).trim();
+      if (s === "") return;
+      if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s)) return;
+      const n = Number(s);
+      if (isFinite(n)) clean.push(n);
+    });
     const { n, mean, sd } = meanStd(clean);
     const base = { n: n, mean: mean, sd: sd, cp: null, cpk: null, usable: false };
     if (n < 2 || !(sd > 0)) return base;
@@ -502,14 +513,22 @@
 
     // 3. 各层节点
     // 源层缩短 label 必须唯一: 两个不同完整条码缩短后相同(如前缀/后缀都相同)会被合并成
-    // 同一节点, 且点击节点无法筛到第二个值。冲突时退化为完整值作 label。
-    const usedShort = new Set();
-    const srcShort = rows.map(function (r) {
-      let s = shortenLabel(r.src);
-      if (usedShort.has(s)) s = r.src;
-      usedShort.add(s);
-      return s;
+    // 同一节点, 且点击节点无法筛到第二个值; 同一完整值多次出现(多工位/多站点测试)时
+    // 也必须只映射到一个 label——旧实现逐行判断"label 是否已出现过", 第二次出现同值会
+    // 退化为完整条码, 导致同一值被拆成「缩短版 + 完整版」两个节点, 样本数/NG 数统计
+    // 被拆分、完整 label 超长撑坏布局。修复: 先按「唯一完整值」分配 label(冲突才退化),
+    // 行按完整值查表, 保证同一完整值永远只对应一个节点。
+    const labelOfSrc = new Map();   // 完整值 → 最终 label
+    const usedLabel = new Set();    // 已占用的 label
+    rows.forEach(function (r) {
+      if (!labelOfSrc.has(r.src)) {
+        let s = shortenLabel(r.src);
+        if (usedLabel.has(s)) s = r.src;   // 缩短 label 已被其他完整值占用 → 本值用完整值
+        labelOfSrc.set(r.src, s);
+        usedLabel.add(s);
+      }
     });
+    const srcShort = rows.map(function (r) { return labelOfSrc.get(r.src); });
     const paramLayers = paramCols.map(function (_, i) {
       return prepareLayer(
         rows.map(function (r) { return r.params[i]; }),

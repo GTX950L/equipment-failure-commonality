@@ -266,4 +266,40 @@ assert.ok(core.sigText(0.75, 0.5, 20, 15, 100, 50).indexOf("显著偏高") >= 0,
 assert.strictEqual(core.sigText(0.5, 0.5, 20, 10, 100, 50), "", "sigText 同比例应为空");
 assert.ok(core.ciText(20, 15).indexOf("95% 区间") === 0, "ciText 格式");
 
-console.log("\n✅ 全部断言通过 (含 calcCpK / verdictForCpk / Wilson / Fisher / comboNgAnalysis / 故障分类列放行)");
+// ============ 回归: 源层重复值不拆分 (P1 修复) ============
+// 同一完整条码出现多行(多工位/多站点测试)时, 必须只映射到一个节点;
+// 旧实现逐行判断缩短 label 是否出现过, 同值第二次出现会退化为完整条码,
+// 导致同一值被拆成 缩短版+完整版 两个节点, 样本/NG 统计被拆分。
+const dupCode = "KJCHV0B09UP1234567890A465P"; // 25 字符, 触发缩短
+const dupRows = [];
+for (let i = 0; i < 10; i++) dupRows.push({ 条码: dupCode, 注水阀: String((i % 3) + 1), 结果: i % 4 === 0 ? "NG" : "OK" });
+["AAAABBBBCCCCDDDDEEEEFFF001", "AAAABBBBCCCCDDDDEEEEFFF002"].forEach(function (c, i) {
+  dupRows.push({ 条码: c, 注水阀: String(i + 1), 结果: "OK" });
+});
+const dupRes = core.buildSankey({
+  data: dupRows, sourceCol: "条码", paramCols: ["注水阀"], resultCol: "结果",
+  ngValues: ["NG"], topN: 3, bins: 5,
+});
+const dupShortLabel = core.shortenLabel(dupCode);
+const dupShortNodes = dupRes.nodes.label.filter(function (l, i) {
+  return dupRes.nodes.customdata[i][1] === 0 && l === dupShortLabel;
+});
+assert.strictEqual(dupShortNodes.length, 1, "重复条码的缩短节点应唯一, 实际: " + JSON.stringify(dupShortNodes));
+const dupFullNodes = dupRes.nodes.label.filter(function (l, i) {
+  return dupRes.nodes.customdata[i][1] === 0 && l === dupCode;
+});
+assert.strictEqual(dupFullNodes.length, 0, "不应出现完整条码节点(未拆分)");
+const dupIdx = dupRes.nodes.label.indexOf(dupShortLabel);
+assert.ok(dupIdx >= 0, "应存在缩短节点");
+assert.strictEqual(dupRes.nodes.customdata[dupIdx][4], 10, "重复条码节点样本数应为 10(不应拆分)");
+assert.strictEqual(dupRes.nodes.customdata[dupIdx][5], 3, "NG 数应为 3 (i=0,4,8 三行 NG)");
+assertNoCycle(dupRes, "dup");
+
+// ============ 回归: calcCpK 空串/伪数值不计入 (P2 修复) ============
+// 旧实现 isFinite(Number(v)) 把 Number("")=0、Number(null)=0 当 0 计入, 拉低均值;
+// "12abc" 等伪数值也会被 isFinite(Number()) 误收
+const cpkClean = core.calcCpK(["", "1.0", "2.0", "3.0", "4.0", "  ", null, "12abc"], 0, 5);
+assert.strictEqual(cpkClean.n, 4, "空串/null/伪数值不应计入 Cpk 样本: n=" + cpkClean.n);
+assert.ok(Math.abs(cpkClean.mean - 2.5) < 1e-9, "有效值均值应为 2.5: " + cpkClean.mean);
+
+console.log("\n✅ 全部断言通过 (含 calcCpK / verdictForCpk / Wilson / Fisher / comboNgAnalysis / 故障分类列放行 / 源层重复值不拆分 / Cpk 空值过滤)");

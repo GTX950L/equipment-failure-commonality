@@ -575,17 +575,25 @@
         var reader = new FileReader();
         reader.onload = function(e){
           try{
-            var wb = XLSX.read(new Uint8Array(e.target.result), {type:"array"});
+            var wb = XLSX.read(new Uint8Array(e.target.result), {type:"array", cellDates:true});
             var ws = wb.Sheets[wb.SheetNames[0]];
             var aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:""});
             if(!aoa.length){ setInfo("文件内容为空", "warn"); return; }
             var header = aoa[0].map(function(h){ return String(h).trim(); });
+            function pad2(x){ return x < 10 ? "0" + x : String(x); }
             var rows = [];
             for(var i=1;i<aoa.length;i++){
               var obj = {};
               var empty = true;
               for(var j=0;j<header.length;j++){
                 var v = aoa[i][j];
+                // Excel 日期单元格(cellDates:true 解析为 Date)统一格式化为 "YYYY-MM-DD HH:mm:ss":
+                // 否则默认 raw 输出会变成序列号(如 45889.4), 导致时间演化/时段分析失效、
+                // 日期列被误当数值分箱
+                if(v instanceof Date && !isNaN(v)){
+                  v = v.getFullYear() + "-" + pad2(v.getMonth() + 1) + "-" + pad2(v.getDate()) +
+                      " " + pad2(v.getHours()) + ":" + pad2(v.getMinutes()) + ":" + pad2(v.getSeconds());
+                }
                 obj[header[j]] = (v===null||v===undefined) ? "" : String(v);
                 if(obj[header[j]]!=="") empty = false;
               }
@@ -1453,7 +1461,10 @@
       ["料号", "条码", "型号", "品号", "物料", "批号", "产品", "flowcode", "条码"],
       ["code", "id"],
     ];
-    var resKw = ["判定", "结果", "ng", "ok", "pass", "fail", "合格", "不良", "判"];
+    // 英文词(ng/ok/pass/fail)用词边界匹配, 避免 "length"/"ring" 含 "ng" 子串被误当结果列
+    var resKw = ["判定", "结果", "合格", "不良", "判"];
+    var resKwEn = ["ng", "ok", "pass", "fail"];
+    var resKwEnRe = resKwEn.map(function(k){ return new RegExp("(^|[^a-z0-9])" + k + "([^a-z0-9]|$)"); });
     var sc = "", rc = "";
     var srcUniq = function(col){
       var s = new Set(), limit = Math.min(state.rows.length, 1000);
@@ -1476,7 +1487,8 @@
     }
     for(var j=0;j<state.header.length;j++){
       var low2 = state.header[j].toLowerCase();
-      if(!rc && resKw.some(function(k){ return low2.indexOf(k) >= 0; })) rc = state.header[j];
+      if(!rc && (resKw.some(function(k){ return low2.indexOf(k) >= 0; }) ||
+                 resKwEnRe.some(function(re){ return re.test(low2); }))) rc = state.header[j];
     }
     if(sc) $("selSource").value = sc;
     if(rc) $("selResult").value = rc;
@@ -1767,10 +1779,29 @@
     if(!timeCol || state.rows.length < 100){ ctrl.style.display = "none"; return; }
     // 数据按时间列稳定排序(仅一次, 排序结果永久影响后续分析顺序, 但 buildSankey 不依赖行序)
     if(!state._timeSorted){
-      var ti = state.header.indexOf(timeCol);
+      // 时间排序键: 完整日期时间 → YYYYMMDDHHMMSS; 仅时刻(如 "8:30")→ 当日分钟数。
+      // 旧实现直接字符串比较, 无日期前缀的 HH:MM 会被 "12:30" < "8:30" 排错, 时间演化乱序。
+      function timeSortKey(t){
+        t = String(t === null || t === undefined ? "" : t).trim();
+        if(!t) return "";
+        var p2 = function(x){ return x < 10 ? "0" + x : String(x); };
+        var m = t.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2})[:：](\d{2})(?::(\d{2}))?/);
+        if(m){
+          return "0" + m[1] + p2(parseInt(m[2],10)) + p2(parseInt(m[3],10)) +
+            p2(parseInt(m[4],10)) + p2(parseInt(m[5],10)) + p2(m[6] ? parseInt(m[6],10) : 0);
+        }
+        var tm = t.match(/^(\d{1,2})[:：](\d{2})(?::(\d{2}))?/);
+        if(tm){
+          var mins = parseInt(tm[1],10) * 60 + parseInt(tm[2],10);
+          var mm = String(mins);
+          while(mm.length < 4) mm = "0" + mm;
+          return "1" + mm;
+        }
+        return t;
+      }
       state.rows = state.rows.slice().sort(function(a, b){
-        var ta = String(a[timeCol] === null || a[timeCol] === undefined ? "" : a[timeCol]);
-        var tb = String(b[timeCol] === null || b[timeCol] === undefined ? "" : b[timeCol]);
+        var ta = timeSortKey(a[timeCol]);
+        var tb = timeSortKey(b[timeCol]);
         return ta < tb ? -1 : ta > tb ? 1 : 0;
       });
       state._timeSorted = true;
@@ -1819,8 +1850,8 @@
     var labels = result.nodes.label;
     var customdata = result.nodes.customdata;
     for(var i=0;i<labels.length;i++){
-      // 只检查源层(层索引 0)的"其他"节点
-      if(customdata[i] && customdata[i][1] === 0 && String(labels[i]).indexOf("其他") >= 0){
+      // 只检查源层(层索引 0)的"其他"节点: 精确匹配 label, 避免真实取值名含"其他"子串被误判
+      if(customdata[i] && customdata[i][1] === 0 && String(labels[i]) === "其他"){
         var ngRatio = customdata[i][0];
         var n = customdata[i][4];
         var ng = customdata[i][5];
@@ -2029,7 +2060,8 @@
 
       // 点击源层「其他」节点 → 只展开被合并的具体值清单(按 NG 优先), 可点单个值单独筛选;
       // "其他"是聚合容器, 无直接子集, 不设置 CPK 筛选(否则无行匹配, CPK 面板会误显示"请点击节点")
-      if(layerIdx === 0 && String(val).indexOf("其他") >= 0){
+      // 精确匹配 label, 避免真实取值名含"其他"子串被误判为合并节点
+      if(layerIdx === 0 && String(val) === "其他"){
         state.filter = null;
         state.cpkScope = "all";
         renderCpkScope();
@@ -2038,10 +2070,13 @@
         return;
       }
 
-      if(val === "NG" || val === "OK"){
-        // 点击结果层节点 → 只看该结果的子集
+      var lastLayer = state.cpkResult.layers.length - 1;
+      if(layerIdx === lastLayer){
+        // 点击结果层节点 → 只看该结果的子集。
+        // 用层索引判断结果层 + customdata 的 NG 数(=样本数 → NG 节点)识别,
+        // 避免硬编码 "NG"/"OK" 对自定义结果标签(FAIL/PASS 等)失效
         state.filter = null;
-        state.cpkScope = (val === "NG") ? "ng" : "ok";
+        state.cpkScope = (info[4] > 0 && info[5] >= info[4]) ? "ng" : "ok";
       } else {
         state.filter = { col: col, value: val, layerIdx: layerIdx };
         state.cpkScope = "filter";
@@ -2062,7 +2097,8 @@
     var sub = applyFilter(state.rows, f.col, f.value, f.layerIdx);
     if(!sub.length) return;
     var keyCols = state.header.filter(function(c){
-      return c !== f.col && /时间|时刻|date|time/.test(c) === false;
+      // 带 i 标志: 避免 "CDateTime"/"TestTime" 等大小写混合列因大小写敏感未排除
+      return c !== f.col && /时间|时刻|date|time/i.test(c) === false;
     }).slice(0, 8);
     var html = '<div class="rec-card" id="nodeDetailBox" style="margin-top:10px">';
     html += '<div class="rec-title">🔎 节点下钻：' + esc(String(f.value).slice(0, 24)) + '（' + sub.length + ' 条样本 · 前 12 条）</div>';
@@ -2093,13 +2129,17 @@
     if(!ngVals.length) return;
 
     // 统计源列每个值的样本数 / NG 数
+    // 不良值统一大写化比较(与 buildSankey 内部一致): 旧实现 ngVals.indexOf(raw) 中
+    // raw 已 toUpperCase 但 ngVals 未大写, 结果值为 "Fail"/"fail" 等非全大写时 NG 漏计
+    var ngSet = {};
+    ngVals.forEach(function(v){ ngSet[String(v).trim().toUpperCase()] = true; });
     var agg = {};
     state.rows.forEach(function(r){
       var v = String(r[col] === null || r[col] === undefined ? "" : r[col]);
       var raw = String(r[rc] === null || r[rc] === undefined ? "" : r[rc]).trim().toUpperCase();
       var e = agg[v] || { n: 0, ng: 0 };
       e.n++;
-      if(ngVals.indexOf(raw) >= 0) e.ng++;
+      if(ngSet[raw]) e.ng++;
       agg[v] = e;
     });
 
@@ -2386,14 +2426,14 @@
   // ---------- 导出 CSV ----------
   function exportCsv(rows, filename){
     var header = state.header;
-    var lines = [header.join(",")];
+    function escCsvCell(s){
+      s = String(s === null || s === undefined ? "" : s);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+    // 表头同样转义: 旧实现 header.join(",") 在列名含逗号/引号时表头损坏(数据行有转义, 表头没有)
+    var lines = [header.map(escCsvCell).join(",")];
     rows.forEach(function(r){
-      var cells = header.map(function(c){
-        var v = r[c];
-        if(v === null || v === undefined) return "";
-        v = String(v);
-        return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
-      });
+      var cells = header.map(function(c){ return escCsvCell(r[c]); });
       lines.push(cells.join(","));
     });
     var blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
@@ -2452,7 +2492,11 @@
   function numericValues(rows, col){
     var out = [];
     rows.forEach(function(r){
-      var v = parseFloat(String(r[col]).replace(/,/g, ""));
+      // 严格数值解析: parseFloat 宽容匹配会把 "12abc"→12、"0.5.5"→0.5、"8:30"→8 误收,
+      // 需整串匹配数字格式才纳入(先去除千分位逗号)
+      var s = String(r[col] === null || r[col] === undefined ? "" : r[col]).trim().replace(/,/g, "");
+      if(!s || !/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s)) return;
+      var v = parseFloat(s);
       if(isFinite(v)) out.push(v);
     });
     return out;
@@ -2548,7 +2592,7 @@
       : "";
 
     var verdictText =
-      (v.level === "A") ? "过程能力优秀，波动小、余量大 —— 该子集参数的偏移/发散**不太可能是 NG 根因**；若 NG 率仍高，请转向批次/时段/操作等因素排查。" :
+      (v.level === "A") ? "过程能力优秀，波动小、余量大 —— 该子集参数的偏移/发散<b>不太可能是 NG 根因</b>；若 NG 率仍高，请转向批次/时段/操作等因素排查。" :
       (v.level === "B") ? "过程能力合格。若该子集 NG 率仍偏高，说明问题可能另有其因，建议查批次/时段。" :
       (v.level === "C") ? "过程能力边缘，存在超规风险 —— 值得重点排查该参数（若这正是桑基图红色路径子集，则相互印证）。" :
       "过程能力不足，超规风险高 —— 该参数很可能是系统性根因（尤其当它正是桑基图红色路径子集时）。";
@@ -2624,12 +2668,13 @@
 
   function renderCpkHistogram(div, values, mean, sd, lsl, usl){
     var lo = mean - 4 * sd, hi = mean + 4 * sd;
-    if(!(hi > lo)) { hi = mean + sd; lo = mean - sd; }
+    if(!(hi > lo)) { hi = mean + 1; lo = mean - 1; }  // sd=0(全同值)时给展示区间, 避免 0 宽区间
+    var sdSafe = sd > 0 ? sd : (hi - lo) / 8;          // 正态拟合用安全 σ, 避免除零产生 Infinity
     var xs = [], ys = [];
     for(var i = 0; i <= 120; i++){
       var x = lo + (hi - lo) * i / 120;
       xs.push(Number(x.toFixed(6)));
-      ys.push(Number((1 / (sd * Math.sqrt(2 * Math.PI)) * Math.exp(-((x - mean) * (x - mean)) / (2 * sd * sd))).toFixed(7)));
+      ys.push(Number((1 / (sdSafe * Math.sqrt(2 * Math.PI)) * Math.exp(-((x - mean) * (x - mean)) / (2 * sdSafe * sdSafe))).toFixed(7)));
     }
     var traces = [
       { type: "histogram", x: values, name: "样本分布", opacity: 0.55,
