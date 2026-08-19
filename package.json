@@ -1,0 +1,11 @@
+{
+  "name": "equipment-failure-commonality",
+  "version": "3.8.6",
+  "private": true,
+  "description": "设备问题共性分析 · 桑基图（纯前端单文件，无运行时依赖）",
+  "scripts": {
+    "test": "node test_core.js",
+    "test:logic": "node verify_sankey.js",
+    "test:all": "node test_core.js && node verify_sankey.js"
+  }
+}

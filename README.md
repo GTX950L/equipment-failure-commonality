@@ -93,7 +93,9 @@ equipment-failure-commonality/
 ├── lib/
 │   ├── plotly.min.js             # 本地绘图库 (离线可用)
 │   └── xlsx.full.min.js          # 本地 Excel 解析库
-├── test_core.js                  # 核心逻辑自测 (node test_core.js)
+├── test_core.js                  # 核心逻辑单元自测 (node test_core.js)
+├── verify_sankey.js              # 输出逻辑回归测试: 279 项自洽性断言 (node verify_sankey.js)
+├── package.json                  # 仅测试脚本入口, 无运行时依赖 (npm test:all)
 └── docs/
     └── sankey_web_example.png        # 静态预览图 (网页截图)
 ```
@@ -213,7 +215,10 @@ CPK 面板的「仅 OK / 仅 NG」两个选项是个 1 键验证：
 
 - 浏览器即可（Chrome / Edge / Firefox），**无需安装任何东西**
 - 绘图库 Plotly.js 与 Excel 解析库 SheetJS 已内置在 `lib/`，完全离线可用
-- 跑自测 `node test_core.js` 仅需 Node.js（开发验证用，不影响使用）
+- 跑自测仅需 Node.js（开发验证用，不影响使用）：
+  - `node test_core.js` — 核心计算逻辑单元断言（buildSankey / CPK / Wilson / Fisher 等）
+  - `node verify_sankey.js` — **输出逻辑回归测试**（279 项自洽性断言：链路流量守恒、染色方向、显著性方向、无环结构、源层 label 唯一性等）
+  - `npm run test:all`（或 `npm test`）— 两者全跑
 
 ---
 
