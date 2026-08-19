@@ -1085,7 +1085,8 @@
         comboShow.forEach(function(c){
           var xStr = (c.x === "" || c.x === "(空值)") ? "空值" : c.x;
           var yStr = (c.y === "" || c.y === "(空值)") ? "空值" : c.y;
-          clueHtml += '<li><span class="rate">' + c.col + '=' + xStr + ' × ' + c.baseCol + '=' + yStr + ' → ' + c.ng + '/' + c.n + ' FAIL（' + Math.round(c.rate * 100) + '%）</span>　<span class="muted">单看：' + c.col + '=' + xStr + ' 仅 ' + Math.round(c.xRate * 100) + '%，' + c.baseCol + '=' + yStr + ' 为 ' + Math.round(c.yRate * 100) + '%</span></li>';
+          var comboP = (c.p !== undefined && c.p !== null) ? ('；组合 Fisher ' + pFmt(c.p) + (c.sig ? '（显著）' : '（不显著）')) : '';
+          clueHtml += '<li><span class="rate">' + c.col + '=' + xStr + ' × ' + c.baseCol + '=' + yStr + ' → ' + c.ng + '/' + c.n + ' FAIL（' + Math.round(c.rate * 100) + '%）</span>　<span class="muted">单看：' + c.col + '=' + xStr + ' 仅 ' + Math.round(c.xRate * 100) + '%，' + c.baseCol + '=' + yStr + ' 为 ' + Math.round(c.yRate * 100) + '%' + comboP + '</span></li>';
         });
         clueHtml += '</ul></div>';
       }
@@ -1112,7 +1113,8 @@
           nBands = tb.bands.length;
           clueHtml += '<div class="rec-combo"><div class="rec-title">🕐 时段效应（' + timeCol + ' 按日时段分组）</div><ul>';
           tb.bands.forEach(function(b){
-            clueHtml += '<li><span class="rate">' + b.band + '</span>　<span class="muted">' + b.n + ' 条 · NG 率 ' + (b.rate * 100).toFixed(1) + '%</span></li>';
+            var bp = (b.p !== undefined && b.p !== null) ? (' · Fisher ' + pFmt(b.p) + (b.sig ? '（显著）' : '')) : '';
+            clueHtml += '<li><span class="rate">' + b.band + '</span>　<span class="muted">' + b.n + ' 条 · NG 率 ' + (b.rate * 100).toFixed(1) + '%' + bp + '</span></li>';
           });
           clueHtml += '</ul><div class="rec-tip">最高时段为 ' + tb.peakBand.band + '（' + (tb.peakBand.rate * 100).toFixed(1) + '%）。若显著高于其他时段，优先排查该班次/时段的设备与操作。</div></div>';
         }
@@ -1123,11 +1125,12 @@
       var pc = SankeyCore.pairCorrelation(state.rows, topCols.slice(0, 12), 5, 30);
       if(pc.length){
         nPc = Math.min(5, pc.length);
-        clueHtml += '<div class="rec-combo"><div class="rec-title">🔗 强相关参数对（同源提示：可能是同一根因的下游表现）</div><ul>';
+        clueHtml += '<div class="rec-combo"><div class="rec-title">🔗 强相关参数对（同源提示：仅数值列计算 Pearson r）</div><ul>';
         pc.slice(0, 5).forEach(function(p){
-          clueHtml += '<li><span class="rate">' + p.a + ' × ' + p.b + ' = ' + p.r + '</span></li>';
+          var pp = (p.p !== undefined && p.p !== null && !isNaN(p.p)) ? ('（' + pFmt(p.p) + '）') : '';
+          clueHtml += '<li><span class="rate">' + p.a + ' × ' + p.b + ' = ' + p.r + pp + '</span></li>';
         });
-        clueHtml += '</ul></div>';
+        clueHtml += '</ul><div class="rec-tip">r 为 Pearson 相关系数（仅数值列）；类别列无顺序意义，已不参与计算。强相关可能源于同一根因的下游表现，也可能只是工艺连带，需结合工程判断。</div></div>';
       }
     }
     if(clueHtml){
@@ -1188,10 +1191,14 @@
       if(badKw.some(function(k){ return u.key.indexOf(k) >= 0; })) autoKeys[u.key] = true;
     });
     if(!Object.keys(autoKeys).length){
-      // 无关键词命中 → 勾少数派为不良。注意: 必须对 items 原地排序,
-      // 原实现 items.slice().sort() 结果被丢弃, items[0] 是原始顺序第一项(通常恰是正常值)导致勾错
-      items.sort(function(a,b){ return a.count - b.count; });
-      if(items.length) autoKeys[items[0].key] = true;
+      // 无关键词命中时的退化策略:
+      // - 恰好 2 个取值 → 勾少数派(通常为 不良/正常 二分类, 少数派更可能是不良)
+      // - 多于 2 个取值 → 不再自动勾选, 避免把某个次要值误当成"不良"
+      //   注: items 必须原地排序(原实现 items.slice().sort() 结果被丢弃, 取 items[0] 是原始顺序首项导致勾错)
+      if(items.length === 2){
+        items.sort(function(a,b){ return a.count - b.count; });
+        if(items.length) autoKeys[items[0].key] = true;
+      }
     }
 
     // DocumentFragment 批量插入, 避免结果值多时逐个 appendChild 触发布局重排
@@ -1211,7 +1218,9 @@
     var chosen = items.filter(function(u){ return autoKeys[u.key]; }).map(function(u){ return u.display; }).join(" / ");
     var note = document.createElement("div");
     note.className = "hint";
-    note.textContent = "自动识别「" + chosen + "」为不良值，可在上方手动调整。";
+    note.textContent = chosen
+      ? "自动识别「" + chosen + "」为不良值，可在上方手动调整。"
+      : "未识别到不良值关键词，且结果取值不止两类，已留空——请手动勾选不良值。";
     list.appendChild(note);
   }
 
@@ -1232,7 +1241,10 @@
     if(!col || !state.rows.length) return;
     var seen = new Set(), limit = Math.min(state.rows.length, 1000);
     for(var i=0;i<limit;i++) seen.add(String(state.rows[i][col]));
-    var ratio = seen.size / state.rows.length;
+    // 分母用采样量(limit)而非全量行数: 否则 >2000 行时唯一值采样被截断到 1000,
+    // ratio 永远 <=0.5, 预警会悄悄失效
+    var ratio = seen.size / limit;
+    var sampled = state.rows.length > limit;
     var tip = $("srcHighCardTip");
     if(ratio > 0.5){
       if(!tip){
@@ -1244,10 +1256,17 @@
         var wrap = $("selSource").closest("label");
         (wrap || $("panelSel")).appendChild(tip);
       }
-      tip.textContent = "⚠ 该列 " + seen.size + " 个唯一值 / " + state.rows.length + " 行（" + (ratio*100).toFixed(0) + "%），几乎每条都不同，做源列会出现巨型「其他」节点。若想看产品共性，建议改用工序参数列做首层。";
+      tip.textContent = "⚠ 该列在采样 " + limit + " 行中唯一值占 " + (ratio*100).toFixed(0) + "%（" + seen.size + " 个唯一值）" + (sampled ? "，全量 " + state.rows.length + " 行已采样估计" : "") + "，几乎每条都不同，做源列会出现巨型「其他」节点。若想看产品共性，建议改用工序参数列做首层。";
     } else if(tip){
       tip.remove();
     }
+  }
+
+  // p 值格式化（核心已用 Fisher 精确检验 / Fisher z 变换算出）
+  function pFmt(p){
+    if(p === undefined || p === null || isNaN(p)) return "";
+    if(p < 0.001) return "p<0.001";
+    return "p=" + p.toFixed(3);
   }
 
   // ---------- 数据质量报告 + NG 率漂移 ----------
@@ -1337,7 +1356,8 @@
         var isFault = function(c){ return faultKw.indexOf(c.baseCol) >= 0 || faultKw.indexOf(c.col) >= 0; };
         var comboShow = combo.filter(function(c){ return !isFault(c); }).slice(0, 5).concat(combo.filter(isFault).slice(0, 3));
         comboShow.forEach(function(c){
-          lines.push("- " + c.col + "=" + c.x + " × " + c.baseCol + "=" + c.y + " → " + c.ng + "/" + c.n + " FAIL（" + Math.round(c.rate * 100) + "%）");
+          var cp = (c.p !== undefined && c.p !== null) ? ("，组合 Fisher " + pFmt(c.p) + (c.sig ? "（显著）" : "（不显著）")) : "";
+          lines.push("- " + c.col + "=" + c.x + " × " + c.baseCol + "=" + c.y + " → " + c.ng + "/" + c.n + " FAIL（" + Math.round(c.rate * 100) + "%）" + cp);
         });
       } else lines.push("未发现显著组合。");
     } else lines.push("未勾选参数列，跳过组合分析。");
@@ -1347,7 +1367,7 @@
     if(params.length >= 2){
       var pc = SankeyCore.pairCorrelation(state.rows, params.slice(0, 12), 5, 30);
       if(pc.length){
-        pc.forEach(function(p){ lines.push("- " + p.a + " × " + p.b + " = " + p.r + "（|r|≥0.5，可能是同一根因的下游表现）"); });
+        pc.forEach(function(p){ var pp = (p.p !== undefined && p.p !== null && !isNaN(p.p)) ? ("，p=" + pFmt(p.p)) : ""; lines.push("- " + p.a + " × " + p.b + " = " + p.r + "（|r|≥0.5，仅数值列计算 Pearson" + pp + "，可能是同一根因的下游表现）"); });
       } else lines.push("未发现 |r|≥0.5 的强相关对。");
     } else lines.push("参数少于 2 列，跳过同源分析。");
     // 时段效应
@@ -1357,7 +1377,7 @@
     if(timeCol){
       var tb = SankeyCore.timeBandStats(state.rows, timeCol, resultCol(), ngVals.length ? ngVals : ["FAIL"]);
       if(tb.usable){
-        tb.bands.forEach(function(b){ lines.push("- " + b.band + "：" + b.n + " 条，NG 率 " + (b.rate * 100).toFixed(1) + "%"); });
+        tb.bands.forEach(function(b){ var bp = (b.p !== undefined && b.p !== null) ? ("，Fisher " + pFmt(b.p) + (b.sig ? "（显著）" : "")) : ""; lines.push("- " + b.band + "：" + b.n + " 条，NG 率 " + (b.rate * 100).toFixed(1) + "%" + bp); });
         var sortedBands = tb.bands.slice().sort(function(a, b){ return b.rate - a.rate; });
         var secondBand = sortedBands.length > 1 ? sortedBands[1] : null;
         lines.push("**结论**：" + tb.peakBand.band + " NG 率最高（" + (tb.peakBand.rate * 100).toFixed(1) + "%）" +

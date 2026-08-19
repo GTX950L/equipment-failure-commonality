@@ -342,6 +342,20 @@
     return Math.max(0, Math.min(1, 2 * Math.min(pRight, pLeft)));
   }
 
+  function erf(x) {
+    /** 误差函数近似（Abramowitz & Stegun 7.1.26），用于相关系数 p 值的正态近似 */
+    const s = x < 0 ? -1 : 1;
+    x = Math.abs(x);
+    const t = 1 / (1 + 0.3275911 * x);
+    const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+    return s * y;
+  }
+
+  function normalTwoTail(z) {
+    /** 标准正态双侧 p 值：P(|Z| >= |z|) */
+    return Math.max(0, 1 - erf(Math.abs(z) / Math.SQRT2));
+  }
+
   function ciText(n, ng) {
     /** hover 用置信区间文本 */
     if (n < 1) return "";
@@ -733,7 +747,7 @@
     // 避免 "candidate" 被 "id" 误杀、"number" 被 "no" 误杀这类子串误伤
     const excludeKw = [
       "时间", "时刻", "日期", "cdate", "datetime",
-      "编号", "码", "单据", "工单", "批次", "批号", "pcd",
+      "编号", "单据", "工单", "批次", "批号", "pcd",
       "设备", "车间", "线别", "部门", "站点", "通道",
       "异常", "错误", "retest", "rework", "复测", "返工", "操作员",
     ];
@@ -829,6 +843,7 @@
       return ngValues.indexOf(key) >= 0 ? 1 : 0;
     });
     const baseline = isNg.reduce(function (a, b) { return a + b; }, 0) / n;
+    const totalNg = Math.round(baseline * n);
     const dangerThr = Math.max(rateThr, baseline * 2);
 
     function prep(col) {
@@ -876,11 +891,15 @@
           const idx = key.indexOf("\u0000");
           const x = key.slice(0, idx), y = key.slice(idx + 1);
           const xs = cStat.get(x), ys = bStat.get(y);
+          // 组合 vs 其余 的 Fisher 精确检验（2×2），避免小样本偶然被当交互根因
+          const restN = n - e.n, restNg = totalNg - e.ng;
+          const p = fisherTwoTailed(e.ng, e.n - e.ng, restNg, restN);
           out.push({
             col: cc, x: x, y: y, baseCol: bc,
             n: e.n, ng: e.ng, rate: e.ng / e.n,
             xRate: xs ? xs.ng / xs.n : 0,
             yRate: ys ? ys.ng / ys.n : 0,
+            p: p, sig: p < 0.05,
           });
         });
       });
@@ -940,7 +959,7 @@
     const ngSet = {};
     (ngValues || ["NG"]).forEach(function (v) { ngSet[String(v).trim().toUpperCase()] = true; });
     const agg = new Map();
-    let parsed = 0;
+    let parsed = 0, totalNg = 0;
     data.forEach(function (r) {
       const b = bandOf(r[timeCol]);
       if (!b) return;
@@ -948,7 +967,7 @@
       const e = agg.get(b.band) || { n: 0, ng: 0, hours: b.hours };
       e.n++;
       const k = String(r[resultCol] === null || r[resultCol] === undefined ? "" : r[resultCol]).trim().toUpperCase();
-      if (ngSet[k]) e.ng++;
+      if (ngSet[k]) { e.ng++; totalNg++; }
       agg.set(b.band, e);
     });
     if (parsed < 20) return { usable: false };
@@ -956,7 +975,9 @@
     ["上午(8-12)", "下午(12-18)", "晚班(18-22)", "夜班(22-8)"].forEach(function (k) {
       if (agg.has(k)) {
         const e = agg.get(k);
-        bands.push({ band: k, hours: e.hours, n: e.n, ng: e.ng, rate: e.n ? e.ng / e.n : 0 });
+        // 该时段 vs 其余时段的 Fisher 精确检验，避免把正常波动当班次效应
+        const bp = fisherTwoTailed(e.ng, e.n - e.ng, totalNg - e.ng, parsed - e.n);
+        bands.push({ band: k, hours: e.hours, n: e.n, ng: e.ng, rate: e.n ? e.ng / e.n : 0, p: bp, sig: bp < 0.05 });
       }
     });
     bands.sort(function (a, b) { return b.rate - a.rate; });
@@ -1077,24 +1098,32 @@
   // 参数两两相关(数值化标签的 Pearson): 提示"同源下游参数"
   // ---------------------------------------------------------------------
   function pairCorrelation(data, cols, bins, maxCardinality) {
-    /** 返回 [{a, b, r}] 强相关对(|r|>=0.5), 按 |r| 降序 */
+    /**
+     * 返回 [{a, b, r, p}] 强相关对(|r|>=0.5), 按 |r| 降序。
+     * 仅对「数值列」计算 Pearson：名义/分类型列无顺序意义，任意整数编码会
+     * 隐含错误的顺序假设，相关系数不可靠，故直接从相关分析里剔除。
+     * p 用 Fisher z 变换 + 正态近似（检验 ρ=0），n 较小时仍可作显著性提示。
+     */
     bins = bins || 5;
     maxCardinality = maxCardinality || 30;
+    const isNum = {};
     const enc = {};
     cols.forEach(function (col) {
       const vals = data.map(function (r) { return r[col] === null || r[col] === undefined ? "" : r[col]; });
       if (isNumericColumn(vals)) {
+        isNum[col] = true;
         enc[col] = vals.map(toNumber);
       } else {
-        const labels = prepareLayer(vals, bins, maxCardinality);
-        const code = {};
-        let i = 0;
-        enc[col] = labels.map(function (v) { if (!(v in code)) code[v] = ++i; return code[v]; });
+        // 类别列: 标记为不参与相关计算
+        isNum[col] = false;
+        enc[col] = null;
       }
     });
     const out = [];
     for (let i = 0; i < cols.length; i++) {
+      if (!isNum[cols[i]]) continue;
       for (let j = i + 1; j < cols.length; j++) {
+        if (!isNum[cols[j]]) continue;
         const a = enc[cols[i]], b = enc[cols[j]];
         const n = Math.min(a.length, b.length);
         let cnt = 0, ma = 0, mb = 0;
@@ -1112,7 +1141,15 @@
         }
         if (sxx === 0 || syy === 0) continue;
         const r = sxy / Math.sqrt(sxx * syy);
-        if (Math.abs(r) >= 0.5) out.push({ a: cols[i], b: cols[j], r: Math.round(r * 100) / 100 });
+        if (Math.abs(r) >= 0.5) {
+          // Fisher z 变换近似 p 值(检验 ρ=0)
+          let p = NaN;
+          if (cnt >= 4) {
+            const z = 0.5 * Math.log((1 + r) / (1 - r)) * Math.sqrt(cnt - 3);
+            p = normalTwoTail(z);
+          }
+          out.push({ a: cols[i], b: cols[j], r: Math.round(r * 100) / 100, p: p });
+        }
       }
     }
     out.sort(function (x, y) { return Math.abs(y.r) - Math.abs(x.r); });
