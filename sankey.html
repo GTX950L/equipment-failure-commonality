@@ -36,10 +36,19 @@
             box-shadow:0 2px 8px rgba(0,0,0,.18);margin:0}
   .head-btn:hover{background:rgba(255,255,255,.28);transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.26)}
   .head-btn:active{transform:translateY(0)}
-  .wrap{display:flex;flex-wrap:wrap;gap:21px;padding:21px 34px;align-items:flex-start}
+  /* 主布局: 左列「数据+选列」配置区, 右列「出图」结果区。
+     右栏跨两行 → 折叠输入面板后不留大片空白, 窄屏下出图区也不会被挤到最下方 */
+  .wrap{display:grid;grid-template-columns:minmax(310px,390px) minmax(0,1fr);gap:21px;padding:21px 28px;align-items:start}
   .panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:21px;
-         flex:1 1 330px;min-width:300px;box-shadow:0 1px 4px rgba(16,32,64,.06);transition:box-shadow .18s}
+         min-width:0;box-shadow:0 1px 4px rgba(16,32,64,.06);transition:box-shadow .18s}
   .panel:hover{box-shadow:0 4px 14px rgba(16,32,64,.08)}
+  .p1{grid-column:1;grid-row:1}
+  .p2{grid-column:1;grid-row:2}
+  .p3{grid-column:2;grid-row:1 / span 2}
+  @media(max-width:1020px){
+    .wrap{grid-template-columns:1fr;padding:16px}
+    .p1,.p2,.p3{grid-column:1;grid-row:auto}
+  }
   .panel h2{margin:0 0 13px;font-size:18px;font-weight:650;color:#24344d;
             border-bottom:2px solid #eef2f8;padding-bottom:8px;display:flex;align-items:center;gap:7px}
   .step{background:linear-gradient(135deg,#3d83c9,#24507e);color:#fff;border-radius:50%;width:22px;height:22px;font-size:12px;
@@ -49,6 +58,8 @@
         padding:1px 8px;border-radius:6px;margin-left:auto;flex:0 0 auto;line-height:1.7}
   .panel-toggle:hover{background:#f0f2f5;color:#1f2937}
   .panel.collapsed .panel-body{display:none}
+  .panel.collapsed{padding:13px 21px}
+  .panel.collapsed h2{border-bottom-color:transparent;margin-bottom:0}
   /* 参数列网格(两列) + 限高内部滚动: 30+ 列时不再整页滚动 */
   #paramList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 12px;
         max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;
@@ -90,13 +101,23 @@
   .parseinfo.ok{color:var(--good)}
   .parseinfo.warn{color:var(--mar)}
   .section-title{font-size:13px;font-weight:650;color:#24344d;margin:13px 0 6px;display:flex;align-items:center;gap:6px}
-  .tag{font-size:12px;background:#eef2f7;color:var(--muted);border-radius:4px;padding:1px 6px;font-weight:500}
+  .tag{font-size:12px;background:#eef2f7;color:var(--muted);border-radius:4px;padding:1px 6px;font-weight:500;white-space:nowrap}
   .tag.num{background:#eaf3fb;color:#0969da}
-  table{border-collapse:collapse;font-size:12px;width:100%}
-  th,td{border:1px solid var(--border);padding:5px 8px;text-align:left}
-  th{background:linear-gradient(180deg,#f6f9fc,#eef3f8);font-weight:600;position:sticky;top:0}
+  /* 表头识别表 / 预览表: 单元格不换行 + 截断(配合 .scroll 容器横向滚动) */
+  table.tbl-fixed{table-layout:auto;width:100%}
+  table.tbl-fixed th,table.tbl-fixed td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 表格: 现代分割线风格(无左右框线), 表头吸顶 */
+  table{border-collapse:separate;border-spacing:0;font-size:12px;width:100%}
+  th,td{padding:6px 10px;text-align:left;vertical-align:top;border-bottom:1px solid var(--border)}
+  th{background:linear-gradient(180deg,#f7fafd,#edf3f9);color:#1e3a5f;font-weight:650;
+     position:sticky;top:0;z-index:2;white-space:nowrap;letter-spacing:.2px;border-bottom:2px solid #d5e2f1}
   tbody tr:nth-child(even){background:#f8fafc}
-  .scroll{max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:8px}
+  tbody tr:hover{background:#f0f6fd}
+  .scroll{max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:#fff}
+  /* 表头识别表 / 预览表: 超长列名与样例截断, hover 显示完整内容 */
+  .tbl-col{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:650;color:#24344d}
+  .tbl-sample{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#4b5a6e}
+  .tbl-num{font-variant-numeric:tabular-nums}
   details{border:1px solid var(--border);border-radius:10px;padding:0 12px;margin-top:13px}
   details summary{cursor:pointer;padding:9px 0;font-weight:600;font-size:13px;color:#24344d}
   #chartBox{width:100%;min-height:480px;border:1px solid var(--border);border-radius:10px;background:#fff;margin-top:13px}
@@ -278,7 +299,7 @@
 
 <div class="wrap">
   <!-- ============ 面板 ① 数据 ============ -->
-  <div class="panel">
+  <div class="panel p1">
     <h2><span class="step">1</span> 数据<button class="panel-toggle" type="button">收起 ▴</button></h2>
     <div class="panel-body">
     <textarea id="dataArea" placeholder="直接粘贴 CSV / Excel 复制出来的表格：&#10;&#10;料号,条码,注水阀,注水量-g,测试结果&#10;M0V405N00D-1,KJCHUZB01RU0001T1D+A466P,1,0.1108,PASS&#10;M0V405N00D-1,KJCHUZB05NK0001T1D+A461P,3,0.1111,FAIL&#10;&#10;（列名任意、列数不限，只需首行是列名）&#10;或点击下方按钮选择文件 / 把文件拖进来"></textarea>
@@ -295,7 +316,7 @@
   </div>
 
   <!-- ============ 面板 ② 选列 ============ -->
-  <div class="panel" id="panelSel" style="display:none">
+  <div class="panel p2" id="panelSel" style="display:none">
     <h2><span class="step">2</span> 打钩选择参与分析的列<button class="panel-toggle" type="button">收起 ▴</button></h2>
     <div class="panel-body">
 
@@ -332,8 +353,7 @@
   </div>
 
   <!-- ============ 面板 ③ 出图 ============ -->
-  <!-- min-width 由 420 改为 300: 修复窄屏(<420px)水平溢出 -->
-  <div class="panel" style="flex:1.618 1 520px;min-width:300px">
+  <div class="panel p3">
     <h2><span class="step">3</span> 出图<button class="panel-toggle" type="button">收起 ▴</button></h2>
     <div class="panel-body">
     <div id="chartArea">
@@ -729,7 +749,7 @@
   }
 
   function renderHeaderTable(){
-    var html = '<table><thead><tr><th>列名</th><th>类型</th><th>唯一值数</th><th>样例值</th></tr></thead><tbody>';
+    var html = '<table class="tbl-fixed"><thead><tr><th style="width:160px">列名</th><th style="width:60px">类型</th><th style="width:74px">唯一值数</th><th>样例值</th></tr></thead><tbody>';
     // 大数据集采样识别, 最多看前 1000 行
     var limit = Math.min(state.rows.length, 1000);
     for(var i=0;i<state.header.length;i++){
@@ -744,21 +764,25 @@
       }
       var type = colType(state.header, col);
       var uniqLabel = (state.rows.length > limit ? "≥" : "") + uniq.size;
-      html += '<tr><td><strong>'+esc(col)+'</strong></td>'+
+      var sampleTxt = samples.join("、");
+      html += '<tr><td class="tbl-col" title="'+esc(col)+'">'+esc(col)+'</td>'+
               '<td><span class="tag '+(type==="num"?"num":"")+'">'+(type==="num"?"数值":"文本")+'</span></td>'+
-              '<td>'+uniqLabel+'</td>'+
-              '<td>'+esc(samples.join("、").slice(0,50))+'</td></tr>';
+              '<td class="tbl-num" title="'+uniqLabel+'">'+uniqLabel+'</td>'+
+              '<td class="tbl-sample" title="'+esc(sampleTxt)+'">'+esc(sampleTxt.slice(0,50))+'</td></tr>';
     }
     html += '</tbody></table>';
     $("headerTable").innerHTML = html;
 
     // 预览表
-    var p = '<table><thead><tr>';
-    for(var h=0;h<state.header.length;h++) p += '<th>'+esc(state.header[h])+'</th>';
+    var p = '<table class="tbl-fixed"><thead><tr>';
+    for(var h=0;h<state.header.length;h++) p += '<th style="width:140px" title="'+esc(state.header[h])+'">'+esc(state.header[h])+'</th>';
     p += '</tr></thead><tbody>';
     for(var r=0;r<Math.min(state.rows.length,5);r++){
       p += '<tr>';
-      for(var c=0;c<state.header.length;c++) p += '<td>'+esc(String(state.rows[r][state.header[c]]))+'</td>';
+      for(var c=0;c<state.header.length;c++){
+        var cv = String(state.rows[r][state.header[c]]);
+        p += '<td title="'+esc(cv)+'">'+esc(cv.slice(0,40))+'</td>';
+      }
       p += '</tr>';
     }
     p += '</tbody></table>';
@@ -1436,7 +1460,7 @@
       var ngVals = currentNgVals();
       var snap = {
         app: "equipment-failure-commonality",
-        version: "v3.8.6",
+        version: "v3.8.7",
         time: new Date().toISOString(),
         source: sourceCol(), result: resultCol(), ng: ngVals, params: params,
         processOrder: state.processOrder || [],
@@ -1733,6 +1757,14 @@
     $("colorbar").style.display = "";
     bindSankeyClick();
     if(!isTime) saveConfig();   // 出图成功 → 记住当前配置(时间演化重绘不重复保存)
+
+    // 窄屏单列布局: 出图后自动滚动到图表区, 免去手动下滑寻找
+    if(!isTime){
+      var cb = $("chartBox");
+      if(cb && cb.scrollIntoView){
+        setTimeout(function(){ cb.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80);
+      }
+    }
 
     // 出图后校验 CPK 筛选是否仍然有效（列被去掉则清掉筛选）
     var colsInPlot = [sourceCol()].concat(params).concat([resultCol()]);
@@ -2901,7 +2933,7 @@
       <button class="gloss-close" id="clogClose">✕ 关闭</button>
     </div>
     <div class="gloss-body" style="padding-top:14px">
-      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.6</b> · 最近更新 2026-08-18</p>
+      <p class="gloss-count" style="margin-bottom:14px">当前版本 <b style="color:#1e4d8c">v3.8.7</b> · 最近更新 2026-08-21</p>
       <div id="clogList"></div>
     </div>
   </div>
@@ -3020,6 +3052,14 @@ document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeGlos
 /* ============ 更新记录 ============ */
 // 版本历史（时间倒序）。记录来源：本项目开发全过程的 git 提交历史与工作记录整理。
 const CHANGELOG=[
+  {ver:'v3.8.7',date:'2026-08-21',tag:'feat',tagTxt:'布局重构',
+   items:[
+     '三面板布局重构：由三列并排改为「左配置(数据+选列) + 右结果(出图跨两行)」两栏，窄屏下出图区不再被挤到最下面，宽屏视觉也更平衡',
+     '折叠面板紧凑化：载入数据后输入面板自动折叠为标题行(无大片空白)，与下方选列面板无缝衔接',
+     '响应式断点：≤1020px 自动单列堆叠；出图后自动滚动到图表区(单列下无需手动下滑)',
+     '表头识别表 / 数据预览表 升级为现代分割线风格：表头粘性吸顶、隔行底色、hover 行高亮；单元格单行截断 + ellipsis + title 悬浮看全名',
+   ],
+   sub:'用户反馈小屏笔记本「三板块不美观、输入模块折叠留白、出图在底部、表格不好看」：布局从 flex 三列 → grid 两栏 + 表格升级两个核心改动，浏览器实测 1440/1100/900px 三档均符合预期。'},
   {ver:'v3.8.6',date:'2026-08-18',tag:'fix',tagTxt:'修复',
    items:['修复术语百科模态框位置错乱 + 关不掉：overlay 的 fixed 定位/display 规则选择器漏了 #glossOverlay（只有 clog/guide/report 三个），导致术语百科无 position:fixed（出现在文档流中不居中）且无 display:none 基础态（打开后无法关闭）；已补入选择器','浏览器实测：初始 display:none + position:fixed，打开后水平居中(left 210/宽1280)、关闭按钮/遮罩点击/Esc 三种方式均恢复正常'],
    sub:'v3.8.5 术语百科回归：新增 overlay 时漏改共享 CSS 选择器（同类历史问题：hover 数组化、导出选择器都出现过）。教训：新增模态框必须同步加入 overlay 样式组。'},
